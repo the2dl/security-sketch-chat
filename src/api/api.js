@@ -130,25 +130,20 @@ const disconnect = () => {
 };
 
 // Create new room
-const createRoom = async (sketchName) => {
-  try {
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name: sketchName }), // Change sketchName to name here
-    });
+export const createRoom = async (name, userId) => {
+  const response = await fetch('http://localhost:3000/api/rooms', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ name, userId }),
+  });
 
-    if (!response.ok) {
-      throw new Error('Failed to create room');
-    }
-
-    return await response.json();
-  } catch (error) {
-    console.error('Error creating room:', error);
-    throw error;
+  if (!response.ok) {
+    throw new Error('Failed to create room');
   }
+
+  return response.json();
 };
 
 // Add this new function
@@ -181,5 +176,47 @@ export const api = {
   cleanup,
   disconnect,
   createRoom,
-  getActiveRooms
+  getActiveRooms,
+
+  // Add getRoomDetails function
+  getRoomDetails: async (roomId) => {
+    try {
+      const response = await fetch(`http://localhost:3000/api/rooms/${roomId}`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch room details');
+      }
+      
+      return response.json();
+    } catch (error) {
+      console.error('Error fetching room details:', error);
+      throw error;
+    }
+  },
+
+  // Add closeRoom function if not already present
+  closeRoom: async (roomId) => {
+    try {
+      const userId = localStorage.getItem('userId'); // Get the current user's ID
+      const response = await fetch(`http://localhost:3000/api/rooms/${roomId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          active: false,
+          userId // Include userId to verify ownership
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to close room');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error closing room:', error);
+      throw error;
+    }
+  },
 };

@@ -18,7 +18,9 @@ CREATE TABLE room_participants (
     room_id UUID REFERENCES rooms(id) ON DELETE CASCADE,
     user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
     joined_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-    UNIQUE(room_id, user_id)
+    UNIQUE(room_id, user_id),
+    active BOOLEAN NOT NULL DEFAULT TRUE
+
 );
 
 CREATE TABLE messages (

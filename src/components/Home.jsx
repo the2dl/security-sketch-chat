@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api/api';
 import { formatDistanceToNow } from 'date-fns';
+import { v4 as uuidv4 } from 'uuid';
 
 function Home() {
   const [sketchName, setSketchName] = useState('');
@@ -18,12 +19,15 @@ function Home() {
     try {
       setLoading(true);
       const response = await api.getActiveRooms();
-      // Ensure we're setting an array
-      setActiveRooms(Array.isArray(response) ? response : []);
+      // Sort rooms by creation date (newest first)
+      const sortedRooms = Array.isArray(response) 
+        ? response.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
+        : [];
+      setActiveRooms(sortedRooms);
     } catch (err) {
       setError('Failed to fetch active rooms');
       console.error(err);
-      setActiveRooms([]); // Set to empty array on error
+      setActiveRooms([]);
     } finally {
       setLoading(false);
     }
@@ -33,7 +37,14 @@ function Home() {
     if (!sketchName.trim()) return;
     
     try {
-      const room = await api.createRoom(sketchName);
+      // Generate a temporary userId if one doesn't exist
+      let userId = localStorage.getItem('userId');
+      if (!userId) {
+        userId = uuidv4(); // You'll need to import uuidv4
+        localStorage.setItem('userId', userId);
+      }
+
+      const room = await api.createRoom(sketchName, userId); // Pass userId to API call
       if (!room || !room.id) {
         throw new Error('Invalid room data received');
       }
@@ -41,7 +52,8 @@ function Home() {
         state: { 
           sketchName,
           secretKey: room.secret_key,
-          isNewRoom: true
+          isNewRoom: true,
+          userId // Pass userId to chat room
         } 
       });
     } catch (err) {
@@ -109,9 +121,9 @@ function Home() {
 
           <div className="divider rounded-full">OR</div>
 
-          {/* Active Rooms Section with additional error checking */}
+          {/* Updated Rooms Section */}
           <div className="space-y-4">
-            <h2 className="card-title text-xl">Active Rooms</h2>
+            <h2 className="card-title text-xl">Investigation Rooms</h2>
             {loading ? (
               <div className="flex justify-center">
                 <span className="loading loading-spinner loading-md"></span>
@@ -122,27 +134,44 @@ function Home() {
               </div>
             ) : activeRooms.length === 0 ? (
               <div className="text-center text-base-content/70">
-                No active rooms available
+                No rooms available
               </div>
             ) : (
               <div className="space-y-2">
                 {activeRooms.map((room) => (
                   <div 
                     key={room.id}
-                    className="flex items-center justify-between p-4 bg-base-100 rounded-xl hover:bg-base-300 transition-colors cursor-pointer"
-                    onClick={() => joinRoom(room.id)}
+                    className={`flex items-center justify-between p-4 rounded-xl transition-colors
+                      ${room.active 
+                        ? 'bg-base-100 hover:bg-base-300 cursor-pointer' 
+                        : 'bg-base-300/30 opacity-60 cursor-not-allowed hover:bg-base-300/30'
+                      }`}
+                    onClick={() => room.active && joinRoom(room.id)}
                   >
                     <div className="space-y-1">
-                      <h3 className="font-medium">{room.name}</h3>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-medium">{room.name}</h3>
+                        {!room.active && (
+                          <span className="badge badge-sm badge-ghost bg-base-300">Investigation Complete</span>
+                        )}
+                      </div>
                       <div className="flex items-center space-x-4 text-sm text-base-content/70">
                         <span>{room.participant_count || 0} participants</span>
                         <span>•</span>
                         <span>{formatDistanceToNow(new Date(room.created_at), { addSuffix: true })}</span>
                       </div>
                     </div>
-                    <button className="btn btn-ghost btn-sm">
-                      Join
-                    </button>
+                    {room.active && (
+                      <button 
+                        className="btn btn-ghost btn-sm"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          joinRoom(room.id);
+                        }}
+                      >
+                        Join
+                      </button>
+                    )}
                   </div>
                 ))}
               </div>

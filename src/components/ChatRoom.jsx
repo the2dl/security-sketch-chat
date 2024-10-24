@@ -5,6 +5,7 @@ import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
 import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { HiOutlineLogout } from 'react-icons/hi';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -31,7 +32,7 @@ function ChatRoom() {
   const [showSecretKey, setShowSecretKey] = useState(false);
 
   // Near the top of your component where other state is defined
-  const isRoomOwner = Boolean(location.state?.secretKey);
+  const [isRoomOwner, setIsRoomOwner] = useState(false);
 
   const [roomName, setRoomName] = useState('Security Sketch');
 
@@ -65,6 +66,30 @@ function ChatRoom() {
         </span>
       );
     });
+  };
+
+  // Add to existing state declarations
+  const [isRoomActive, setIsRoomActive] = useState(true);
+
+  // Add these state declarations near your other useState calls
+  const [showConfirmModal, setShowConfirmModal] = useState(false);
+  const [closeError, setCloseError] = useState(null);
+
+  // Update the closeRoom function
+  const handleCloseRoom = () => {
+    setShowConfirmModal(true);
+  };
+
+  const confirmCloseRoom = async () => {
+    try {
+      await api.closeRoom(roomId);
+      setIsRoomActive(false);
+      setShowConfirmModal(false);
+      navigate('/');
+    } catch (error) {
+      console.error('Error closing room:', error);
+      setCloseError('Failed to close room');
+    }
   };
 
   useEffect(() => {
@@ -173,6 +198,30 @@ function ChatRoom() {
       clearInterval(keepAlivePing);
     };
   }, [roomId, userId, isJoined]);
+
+  useEffect(() => {
+    // ... existing code ...
+    
+    // Add check for room ownership
+    const checkRoomOwnership = async () => {
+      try {
+        const roomDetails = await api.getRoomDetails(roomId);
+        const currentUserId = localStorage.getItem('userId');
+        
+        if (roomDetails && currentUserId) {
+          setIsRoomOwner(roomDetails.owner_id === currentUserId);
+        }
+      } catch (error) {
+        console.error('Error checking room ownership:', error);
+        // Handle error gracefully - maybe set some error state
+        setIsRoomOwner(false);
+      }
+    };
+
+    if (roomId) {
+      checkRoomOwnership();
+    }
+  }, [roomId]);
 
   const joinChat = async (e) => {
     e.preventDefault();
@@ -287,6 +336,9 @@ function ChatRoom() {
     setShowMentions(false);
     textarea.focus();
   };
+
+  // Add new state for showing the secret key modal
+  const [showSecretKeyModal, setShowSecretKeyModal] = useState(false);
 
   if (!isJoined) {
     return (
@@ -424,7 +476,28 @@ function ChatRoom() {
                 {username}
               </div>
             </div>
-            <div className="badge badge-primary rounded-lg px-4 py-3">Room ID: {roomId}</div>
+            <div className="flex items-center gap-4">
+              <div className="text-xs text-base-content/50">
+                {roomId}
+              </div>
+              {isRoomOwner && (
+                <>
+                  <button 
+                    onClick={() => setShowSecretKeyModal(true)}
+                    className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
+                  >
+                    View Secret Key
+                  </button>
+                  <button 
+                    onClick={handleCloseRoom}
+                    className="btn btn-ghost btn-sm px-4 hover:bg-red-500/10 text-red-500 hover:text-red-600 rounded-xl border-none transition-all duration-300"
+                  >
+                    <HiOutlineLogout className="w-5 h-5 mr-1.5" />
+                    Close Investigation
+                  </button>
+                </>
+              )}
+            </div>
           </div>
           
           <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0">
@@ -530,6 +603,70 @@ function ChatRoom() {
           </form>
         </div>
       </div>
+
+      {/* Add the confirmation modal */}
+      {showConfirmModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Close Investigation?</h3>
+            <p className="text-base-content/70 mb-6">
+              Are you sure you want to close this investigation? This action cannot be undone.
+            </p>
+            {closeError && (
+              <div className="alert alert-error mb-4">
+                <span>{closeError}</span>
+              </div>
+            )}
+            <div className="modal-action flex gap-3">
+              <button 
+                className="btn btn-ghost rounded-xl"
+                onClick={() => setShowConfirmModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-ghost hover:bg-red-500/10 text-red-500 hover:text-red-600 rounded-xl"
+                onClick={confirmCloseRoom}
+              >
+                Close Investigation
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showSecretKeyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Room Secret Key</h3>
+            <div className="form-control">
+              <div className="relative">
+                <input
+                  type={showSecretKey ? "text" : "password"}
+                  className="input input-bordered w-full pr-10"
+                  value={secretKey}
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowSecretKey(!showSecretKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
+                >
+                  {showSecretKey ? <FaEyeSlash className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+            <div className="modal-action mt-6">
+              <button 
+                className="btn btn-ghost rounded-xl"
+                onClick={() => setShowSecretKeyModal(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

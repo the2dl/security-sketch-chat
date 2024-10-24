@@ -93,14 +93,7 @@ io.on('connection', (socket) => {
       let userId;
       
       if (existingUserResult.rows.length > 0) {
-        // Username exists in this room - allow only if it's the exact same username
-        // (case-sensitive match to prevent "Dan" vs "dan" confusion)
-        if (existingUserResult.rows[0].username !== username) {
-          socket.emit('error', { 
-            message: 'This username is taken in this room. Please choose another name.' 
-          });
-          return;
-        }
+        // Username exists in this room
         userId = existingUserResult.rows[0].id;
         
         // Update their last joined timestamp
@@ -112,10 +105,11 @@ io.on('connection', (socket) => {
           [roomId, userId]
         );
       } else {
-        // Create new user
+        // Create new user with UUID
+        userId = uuidv4(); // Make sure to import uuidv4
         const userResult = await pool.query(
-          'INSERT INTO users (username) VALUES ($1) RETURNING id',
-          [username]
+          'INSERT INTO users (id, username) VALUES ($1, $2) RETURNING id',
+          [userId, username]
         );
         userId = userResult.rows[0].id;
         
@@ -322,9 +316,8 @@ io.on('connection', (socket) => {
 
 // API Routes
 app.post('/api/rooms', async (req, res) => {
-  const { name } = req.body;
+  const { name, userId } = req.body;
   
-  // Add validation
   if (!name || typeof name !== 'string' || name.trim() === '') {
     return res.status(400).json({ error: 'Room name is required' });
   }
@@ -333,16 +326,24 @@ app.post('/api/rooms', async (req, res) => {
   const secretKey = generateSecureKey();
 
   try {
+    // First ensure the user exists with UUID
+    const userResult = await pool.query(
+      'INSERT INTO users (id, username) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id',
+      [userId, `user_${userId.slice(0, 8)}`]
+    );
+
+    // Then create the room with owner_id
     const result = await pool.query(
-      'INSERT INTO rooms (id, name, secret_key) VALUES ($1, $2, $3) RETURNING *',
-      [roomId, name.trim(), secretKey]
+      'INSERT INTO rooms (id, name, secret_key, owner_id) VALUES ($1, $2, $3, $4) RETURNING *',
+      [roomId, name.trim(), secretKey, userId]
     );
 
     res.json({
       id: result.rows[0].id,
       name: result.rows[0].name,
       secret_key: secretKey,
-      created_at: result.rows[0].created_at
+      created_at: result.rows[0].created_at,
+      owner_id: result.rows[0].owner_id
     });
   } catch (error) {
     console.error('Error creating room:', error);
@@ -374,13 +375,14 @@ app.get('/api/rooms/:roomId', async (req, res) => {
 
 app.get('/api/rooms', async (req, res) => {
   try {
-    console.log('Fetching active rooms...');
+    console.log('Fetching rooms...');
     
     const result = await pool.query(`
       SELECT 
         r.id,
         r.name,
         r.created_at,
+        r.active,
         COUNT(rp.user_id)::int as participant_count 
       FROM rooms r 
       LEFT JOIN room_participants rp ON r.id = rp.room_id 
@@ -445,6 +447,76 @@ app.get('/api/rooms/:roomId/users', async (req, res) => {
   }
 });
 
+// Update room status endpoint
+app.put('/api/rooms/:roomId/status', async (req, res) => {
+  try {
+    const { active, userId } = req.body;  // Add userId to verify ownership
+    
+    if (typeof active !== 'boolean') {
+      return res.status(400).json({ error: 'Active status must be a boolean' });
+    }
+
+    // First check if user is room owner
+    const ownerCheck = await pool.query(
+      'SELECT owner_id FROM rooms WHERE id = $1',
+      [req.params.roomId]
+    );
+
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    if (ownerCheck.rows[0].owner_id !== userId) {
+      return res.status(403).json({ error: 'Not authorized to modify this room' });
+    }
+
+    const result = await pool.query(
+      'UPDATE rooms SET active = $1 WHERE id = $2 RETURNING *',
+      [active, req.params.roomId]
+    );
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating room status:', error);
+    res.status(500).json({ error: 'Failed to update room status' });
+  }
+});
+
+// Add this endpoint to handle room closure
+app.put('/api/rooms/:roomId/status', async (req, res) => {
+  try {
+    const { userId } = req.body;
+    
+    // First check if user is room owner
+    const ownerCheck = await pool.query(
+      'SELECT owner_id FROM rooms WHERE id = $1',
+      [req.params.roomId]
+    );
+
+    if (ownerCheck.rows.length === 0) {
+      return res.status(404).json({ error: 'Room not found' });
+    }
+
+    if (ownerCheck.rows[0].owner_id !== userId) {
+      return res.status(403).json({ error: 'Not authorized to modify this room' });
+    }
+
+    // If owner, proceed with update
+    const result = await pool.query(
+      'UPDATE rooms SET active = false WHERE id = $1 RETURNING *',
+      [req.params.roomId]
+    );
+
+    // Notify all connected clients that the room is closed
+    io.to(req.params.roomId).emit('room_closed');
+
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error updating room status:', error);
+    res.status(500).json({ error: 'Failed to update room status' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
@@ -479,3 +551,4 @@ function generateSecureKey(length = 12) {
            Math.random().toString(36).slice(2);
   }
 }
+
