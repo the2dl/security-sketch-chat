@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaEye, FaEyeSlash } from 'react-icons/fa';
+import { FaEye, FaEyeSlash, FaExternalLinkAlt } from 'react-icons/fa';
 import { HiOutlineLogout } from 'react-icons/hi';
 
 function ChatRoom() {
@@ -97,6 +97,19 @@ function ChatRoom() {
       const socket = api.initSocket();
       api.cleanup();
 
+      // Update the room joined handler
+      api.onRoomJoined(({ messages: roomMessages, activeUsers: roomUsers, userId: newUserId, roomName }) => {
+        console.log('Room joined, setting initial messages:', roomMessages);
+        setMessages(roomMessages || []); // Add fallback for empty messages
+        setActiveUsers(roomUsers || []); // Add fallback for empty users
+        setIsJoined(true); // Make sure this is explicitly set
+        if (newUserId) {
+          setUserId(newUserId);
+          localStorage.setItem(`userId_${roomId}`, newUserId);
+        }
+        if (roomName) setRoomName(roomName);
+      });
+
       return socket;
     };
 
@@ -108,16 +121,6 @@ function ChatRoom() {
         socket.emit('keep_alive', { roomId, userId });
       }
     }, 5000);
-
-    // Update the room joined handler to include room name
-    api.onRoomJoined(({ messages: roomMessages, activeUsers: roomUsers, userId: newUserId, roomName }) => {
-      console.log('Room joined, setting initial messages:', roomMessages);
-      setMessages(roomMessages);
-      setActiveUsers(roomUsers);
-      setIsJoined(true);
-      if (newUserId) setUserId(newUserId);
-      if (roomName) setRoomName(roomName);
-    });
 
     api.onUpdateActiveUsers(({ activeUsers: updatedUsers }) => {
       setActiveUsers(updatedUsers);
@@ -229,8 +232,9 @@ function ChatRoom() {
 
     try {
       setError(null); // Clear any existing errors
-      // Pass existing userId if available
-      api.joinRoom(roomId, username, secretKey);
+      // The issue is here - we need to await the response and set isJoined
+      await api.joinRoom(roomId, username, secretKey);
+      setIsJoined(true); // Add this line to trigger the UI transition
     } catch (err) {
       setError(err.message || 'Failed to join room');
       console.error(err);
@@ -339,6 +343,50 @@ function ChatRoom() {
 
   // Add new state for showing the secret key modal
   const [showSecretKeyModal, setShowSecretKeyModal] = useState(false);
+
+  // Add new state near other useState declarations
+  const [sketchId, setSketchId] = useState(null);
+
+  // Modify the existing useEffect that checks room ownership to also fetch sketch_id
+  useEffect(() => {
+    const checkRoomDetails = async () => {
+      try {
+        const roomDetails = await api.getRoomDetails(roomId);
+        const currentUserId = localStorage.getItem('userId');
+        
+        if (roomDetails) {
+          if (currentUserId) {
+            setIsRoomOwner(roomDetails.owner_id === currentUserId);
+          }
+          // Add this line to set the sketch ID
+          setSketchId(roomDetails.sketch_id);
+        }
+      } catch (error) {
+        console.error('Error checking room details:', error);
+        setIsRoomOwner(false);
+      }
+    };
+
+    if (roomId) {
+      checkRoomDetails();
+    }
+  }, [roomId]);
+
+  // Add this useEffect to fetch active users when component mounts
+  useEffect(() => {
+    const fetchInitialActiveUsers = async () => {
+      try {
+        if (roomId) {
+          const users = await api.getActiveUsers(roomId);
+          setActiveUsers(users);
+        }
+      } catch (error) {
+        console.error('Error fetching initial active users:', error);
+      }
+    };
+
+    fetchInitialActiveUsers();
+  }, [roomId]);
 
   if (!isJoined) {
     return (
@@ -477,9 +525,17 @@ function ChatRoom() {
               </div>
             </div>
             <div className="flex items-center gap-4">
-              <div className="text-xs text-base-content/50">
-                {roomId}
-              </div>
+              {sketchId && (
+                <a
+                  href={`${process.env.REACT_APP_TIMESKETCH_HOST}/sketch/${sketchId}/explore`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
+                >
+                  <FaExternalLinkAlt className="w-3.5 h-3.5 mr-2" />
+                  Open in Timesketch
+                </a>
+              )}
               {isRoomOwner && (
                 <>
                   <button 

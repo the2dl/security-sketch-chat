@@ -1,0 +1,98 @@
+#!/bin/bash
+
+# Colors for output
+GREEN='\033[0;32m'
+RED='\033[0;31m'
+NC='\033[0m' # No Color
+
+# Function to start everything
+setup() {
+    echo -e "${GREEN}Starting setup...${NC}"
+    
+    # 1. Create the network if it doesn't exist
+    echo "Creating timesketch network..."
+    docker network create timesketch-network || true
+
+    # 2. Start the PostgreSQL container using docker-compose
+    echo "Starting PostgreSQL container..."
+    docker-compose up -d db
+
+    # 3. Wait for PostgreSQL to be healthy
+    echo "Waiting for PostgreSQL to be ready..."
+    until docker-compose exec db pg_isready -U sketch_user -d security_sketch
+    do
+        echo "PostgreSQL is unavailable - sleeping"
+        sleep 1
+    done
+
+    # 4. Connect PostgreSQL container to the network
+    echo "Connecting PostgreSQL to timesketch network..."
+    docker network connect timesketch-network security-sketch-db || true
+
+    # 5. Start the timesketch-api container
+    echo "Starting timesketch-api container..."
+    docker run -d \
+        --name timesketch-api \
+        --network timesketch-network \
+        --env-file .env \
+        -p 5001:5001 \
+        timesketch-cli
+
+    echo -e "${GREEN}Setup complete!${NC}"
+    
+    # Show container status
+    echo -e "\nContainer Status:"
+    docker ps
+}
+
+# Function to remove everything
+remove() {
+    echo -e "${RED}Starting removal...${NC}"
+    
+    # 1. Stop and remove timesketch-api
+    echo "Removing timesketch-api container..."
+    docker rm -f timesketch-api 2>/dev/null || true
+    
+    # 2. Stop PostgreSQL
+    echo "Stopping PostgreSQL container..."
+    docker-compose down
+    
+    # 3. Remove network
+    echo "Removing timesketch network..."
+    docker network rm timesketch-network 2>/dev/null || true
+    
+    echo -e "${RED}Removal complete!${NC}"
+    
+    # Show remaining containers
+    echo -e "\nRemaining Containers:"
+    docker ps
+}
+
+# Show usage if no arguments provided
+if [ $# -eq 0 ]; then
+    echo "Usage: $0 [setup|remove]"
+    echo "  setup  - Start all containers and setup network"
+    echo "  remove - Stop and remove all containers and network"
+    exit 1
+fi
+
+# Handle command line arguments
+case "$1" in
+    setup)
+        setup
+        ;;
+    remove)
+        read -p "Are you sure you want to remove all containers? (y/N) " -n 1 -r
+        echo
+        if [[ $REPLY =~ ^[Yy]$ ]]; then
+            remove
+        else
+            echo "Operation cancelled"
+        fi
+        ;;
+    *)
+        echo "Invalid option: $1"
+        echo "Usage: $0 [setup|remove]"
+        exit 1
+        ;;
+esac

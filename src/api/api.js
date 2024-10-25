@@ -131,19 +131,31 @@ const disconnect = () => {
 
 // Create new room
 export const createRoom = async (name, userId) => {
-  const response = await fetch('http://localhost:3000/api/rooms', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({ name, userId }),
-  });
+  try {
+    const response = await fetch('http://localhost:3000/api/rooms', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ name, userId }),
+    });
 
-  if (!response.ok) {
-    throw new Error('Failed to create room');
+    if (!response.ok) {
+      throw new Error('Failed to create room');
+    }
+
+    const roomData = await response.json();
+    
+    // Store the sketch_id in localStorage for future use
+    if (roomData.sketch_id) {
+      localStorage.setItem(`sketchId_${roomData.id}`, roomData.sketch_id);
+    }
+
+    return roomData;
+  } catch (error) {
+    console.error('Error creating room:', error);
+    throw error;
   }
-
-  return response.json();
 };
 
 // Add this new function
@@ -187,7 +199,14 @@ export const api = {
         throw new Error('Failed to fetch room details');
       }
       
-      return response.json();
+      const roomData = await response.json();
+      
+      // Add sketch_id from localStorage if not present in response
+      if (!roomData.sketch_id) {
+        roomData.sketch_id = localStorage.getItem(`sketchId_${roomId}`);
+      }
+      
+      return roomData;
     } catch (error) {
       console.error('Error fetching room details:', error);
       throw error;
@@ -197,7 +216,7 @@ export const api = {
   // Add closeRoom function if not already present
   closeRoom: async (roomId) => {
     try {
-      const userId = localStorage.getItem('userId'); // Get the current user's ID
+      const userId = localStorage.getItem('userId');
       const response = await fetch(`http://localhost:3000/api/rooms/${roomId}/status`, {
         method: 'PUT',
         headers: {
@@ -205,7 +224,7 @@ export const api = {
         },
         body: JSON.stringify({ 
           active: false,
-          userId // Include userId to verify ownership
+          userId
         }),
       });
 
@@ -213,10 +232,65 @@ export const api = {
         throw new Error('Failed to close room');
       }
 
+      // Clean up localStorage
+      localStorage.removeItem(`sketchId_${roomId}`);
+      
       return response.json();
     } catch (error) {
       console.error('Error closing room:', error);
       throw error;
     }
+  },
+
+  // Add new Timesketch functions
+  createSketch: async (name) => {
+    try {
+      const response = await fetch('http://localhost:3000/api/sketch/create', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create sketch');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error creating sketch:', error);
+      throw error;
+    }
+  },
+
+  importTimeline: async (sketchId, filePath) => {
+    try {
+      const response = await fetch('http://localhost:3000/api/sketch/import', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ 
+          sketch_id: sketchId, 
+          file_path: filePath 
+        }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to import timeline');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error importing timeline:', error);
+      throw error;
+    }
+  },
+
+  // Add helper function to get sketch URL
+  getSketchUrl: (sketchId) => {
+    const timesketchHost = process.env.REACT_APP_TIMESKETCH_HOST || 'http://localhost:5001';
+    return `${timesketchHost}/sketch/${sketchId}/explore`;
   },
 };

@@ -10,6 +10,9 @@ function Home() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
   const navigate = useNavigate();
+  const [currentPage, setCurrentPage] = useState(1);
+  const roomsPerPage = 5;
+  const [creatingSketch, setCreatingSketch] = useState(false);
 
   useEffect(() => {
     fetchActiveRooms();
@@ -37,28 +40,38 @@ function Home() {
     if (!sketchName.trim()) return;
     
     try {
+      setError(null);
+      setCreatingSketch(true); // Start loading
+      
       // Generate a temporary userId if one doesn't exist
       let userId = localStorage.getItem('userId');
       if (!userId) {
-        userId = uuidv4(); // You'll need to import uuidv4
+        userId = uuidv4();
         localStorage.setItem('userId', userId);
       }
 
-      const room = await api.createRoom(sketchName, userId); // Pass userId to API call
-      if (!room || !room.id) {
+      // Create room (which now includes Timesketch sketch creation)
+      const room = await api.createRoom(sketchName, userId);
+      
+      if (!room || !room.id || !room.sketch_id) {
         throw new Error('Invalid room data received');
       }
+
+      // Navigate to the new room
       navigate(`/chat/${room.id}`, { 
         state: { 
           sketchName,
           secretKey: room.secret_key,
           isNewRoom: true,
-          userId // Pass userId to chat room
+          userId,
+          sketch_id: room.sketch_id // Pass sketch_id to chat room
         } 
       });
     } catch (err) {
-      setError('Failed to create room');
+      setError('Failed to create room: ' + (err.message || 'Unknown error'));
       console.error(err);
+    } finally {
+      setCreatingSketch(false); // Stop loading regardless of outcome
     }
   };
 
@@ -82,6 +95,17 @@ function Home() {
 
   // Add debug logging
   console.log('Active Rooms:', activeRooms);
+
+  // Add pagination calculation
+  const indexOfLastRoom = currentPage * roomsPerPage;
+  const indexOfFirstRoom = indexOfLastRoom - roomsPerPage;
+  const currentRooms = activeRooms.slice(indexOfFirstRoom, indexOfLastRoom);
+  const totalPages = Math.ceil(activeRooms.length / roomsPerPage);
+
+  // Add this pagination handler
+  const handlePageChange = (pageNumber) => {
+    setCurrentPage(pageNumber);
+  };
 
   return (
     <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] p-4 max-w-md mx-auto w-full">
@@ -112,9 +136,13 @@ function Home() {
               <button 
                 className="btn btn-primary join-item !border-l-0"
                 onClick={createNewSketch}
-                disabled={!sketchName.trim()}
+                disabled={!sketchName.trim() || creatingSketch}
               >
-                Create
+                {creatingSketch ? (
+                  <span className="loading loading-spinner loading-sm"></span>
+                ) : (
+                  'Create'
+                )}
               </button>
             </div>
           </div>
@@ -138,7 +166,7 @@ function Home() {
               </div>
             ) : (
               <div className="space-y-2">
-                {activeRooms.map((room) => (
+                {currentRooms.map((room) => (
                   <div 
                     key={room.id}
                     className={`flex items-center justify-between p-4 rounded-xl transition-colors
@@ -174,6 +202,37 @@ function Home() {
                     )}
                   </div>
                 ))}
+                
+                {/* Add pagination controls */}
+                {activeRooms.length > roomsPerPage && (
+                  <div className="flex justify-center items-center gap-2 mt-4">
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => handlePageChange(currentPage - 1)}
+                      disabled={currentPage === 1}
+                    >
+                      Previous
+                    </button>
+                    {[...Array(totalPages)].map((_, index) => (
+                      <button
+                        key={index + 1}
+                        className={`btn btn-sm ${
+                          currentPage === index + 1 ? 'btn-primary' : 'btn-ghost'
+                        }`}
+                        onClick={() => handlePageChange(index + 1)}
+                      >
+                        {index + 1}
+                      </button>
+                    ))}
+                    <button
+                      className="btn btn-sm btn-ghost"
+                      onClick={() => handlePageChange(currentPage + 1)}
+                      disabled={currentPage === totalPages}
+                    >
+                      Next
+                    </button>
+                  </div>
+                )}
               </div>
             )}
           </div>

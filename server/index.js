@@ -326,28 +326,54 @@ app.post('/api/rooms', async (req, res) => {
   const secretKey = generateSecureKey();
 
   try {
+    console.log('Creating Timesketch sketch...');
+    // Use native fetch instead of node-fetch
+    const sketchResponse = await fetch('http://localhost:5001/api/sketch/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name })
+    });
+
+    if (!sketchResponse.ok) {
+      const errorText = await sketchResponse.text();
+      console.error('Sketch creation failed:', errorText);
+      throw new Error('Failed to create Timesketch sketch');
+    }
+
+    const sketchData = await sketchResponse.json();
+    console.log('Sketch creation successful:', sketchData);
+
     // First ensure the user exists with UUID
     const userResult = await pool.query(
       'INSERT INTO users (id, username) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id',
       [userId, `user_${userId.slice(0, 8)}`]
     );
 
-    // Then create the room with owner_id
+    // Then create the room with owner_id and sketch_id
     const result = await pool.query(
-      'INSERT INTO rooms (id, name, secret_key, owner_id) VALUES ($1, $2, $3, $4) RETURNING *',
-      [roomId, name.trim(), secretKey, userId]
+      'INSERT INTO rooms (id, name, secret_key, owner_id, sketch_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
+      [roomId, name.trim(), secretKey, userId, sketchData.sketch_id]
     );
 
-    res.json({
+    const roomData = {
       id: result.rows[0].id,
       name: result.rows[0].name,
       secret_key: secretKey,
       created_at: result.rows[0].created_at,
-      owner_id: result.rows[0].owner_id
-    });
+      owner_id: result.rows[0].owner_id,
+      sketch_id: sketchData.sketch_id
+    };
+
+    console.log('Room created successfully:', roomData);
+    res.json(roomData);
   } catch (error) {
     console.error('Error creating room:', error);
-    res.status(500).json({ error: 'Failed to create room' });
+    res.status(500).json({ 
+      error: 'Failed to create room',
+      details: error.message 
+    });
   }
 });
 
@@ -517,6 +543,72 @@ app.put('/api/rooms/:roomId/status', async (req, res) => {
   }
 });
 
+// Add these new endpoints for Timesketch integration
+app.post('/api/sketch/create', async (req, res) => {
+  try {
+    const { name } = req.body;
+    
+    if (!name) {
+      return res.status(400).json({ error: 'Sketch name is required' });
+    }
+
+    console.log('Forwarding sketch creation to Flask API...');
+    const response = await fetch('http://localhost:5001/api/sketch/create', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ name })
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('Flask API error:', errorText);
+      throw new Error(`Flask API returned ${response.status}`);
+    }
+
+    const sketchData = await response.json();
+    console.log('Sketch created successfully:', sketchData);
+    
+    res.json(sketchData);
+  } catch (error) {
+    console.error('Error creating sketch:', error);
+    res.status(500).json({ 
+      error: 'Failed to create sketch',
+      details: error.message 
+    });
+  }
+});
+
+app.post('/api/sketch/import', async (req, res) => {
+  try {
+    const { sketch_id, file_path } = req.body;
+    
+    if (!sketch_id || !file_path) {
+      return res.status(400).json({ error: 'Sketch ID and file path are required' });
+    }
+
+    // Forward the request to Flask API
+    const response = await fetch('http://localhost:5001/api/sketch/import', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({ sketch_id, file_path })
+    });
+
+    if (!response.ok) {
+      throw new Error(`Flask API returned ${response.status}`);
+    }
+
+    const importData = await response.json();
+    res.json(importData);
+  } catch (error) {
+    console.error('Error importing timeline:', error);
+    res.status(500).json({ error: 'Failed to import timeline' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
@@ -551,4 +643,3 @@ function generateSecureKey(length = 12) {
            Math.random().toString(36).slice(2);
   }
 }
-

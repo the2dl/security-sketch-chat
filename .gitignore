@@ -12,6 +12,7 @@
 /build
 /dist
 /venv
+/server/node_modules*
 
 # Environment files
 .env

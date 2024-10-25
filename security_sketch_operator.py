@@ -5,32 +5,49 @@ from datetime import datetime, timezone
 import google.generativeai as genai
 from time import sleep
 import logging
+import subprocess
+import uuid
+from dotenv import load_dotenv
+
+# Load environment variables
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
+    format='%(asctime)s [%(levelname)s] SecuritySketchOperator: %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
 )
 
 # Configure Gemini API
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
+if not GOOGLE_API_KEY:
+    raise ValueError("GOOGLE_API_KEY not found in environment variables")
 genai.configure(api_key=GOOGLE_API_KEY)
 
-# Database configuration
+# Database configuration from environment
 DB_CONFIG = {
-    'dbname': 'security_sketch',
-    'user': 'sketch_user',
-    'password': 'f0audfh8389r3z',
-    'host': 'localhost',
-    'port': 5432
+    'dbname': os.getenv('DB_NAME', 'security_sketch'),
+    'user': os.getenv('DB_USER', 'sketch_user'),
+    'password': os.getenv('DB_PASSWORD'),
+    'host': os.getenv('DB_HOST', 'localhost'),
+    'port': int(os.getenv('DB_PORT', 5432))
 }
+
+# Validate DB configuration
+if not DB_CONFIG['password']:
+    raise ValueError("DB_PASSWORD not found in environment variables")
 
 class SecuritySketchOperator:
     def __init__(self):
-        self.model = genai.GenerativeModel('gemini-1.5-pro-002')
+        self.model = genai.GenerativeModel(os.getenv('GEMINI_MODEL', 'gemini-1.5-pro-002'))
         self.last_processed_timestamps = {}
         self.processed_messages_file = 'processed_messages.json'
         self.processed_messages = self.load_processed_messages()
+        self.output_dir = os.getenv('OUTPUT_DIR', 'sketch_files')
+        
+        # Create output directory if it doesn't exist
+        os.makedirs(self.output_dir, exist_ok=True)
         
         # Load the last processed timestamps at initialization
         self.load_last_processed_timestamps()
@@ -90,6 +107,61 @@ class SecuritySketchOperator:
         except Exception as e:
             logging.error(f"Error saving timestamps: {e}")
 
+    def get_sketch_file_path(self, sketch_id):
+        """Get the path for a sketch's JSONL file"""
+        return os.path.join(self.output_dir, f"{sketch_id}.jsonl")
+
+    def import_to_timesketch(self, sketch_id, file_path):
+        """Import JSONL file to Timesketch"""
+        try:
+            # Generate unique timeline name using UUID
+            timeline_name = f"timeline_{datetime.now().strftime('%Y%m%d')}_{str(uuid.uuid4())[:8]}"
+            
+            command = f'timesketch --sketch {sketch_id} import --name "{timeline_name}" "{file_path}"'
+            logging.info(f"Executing import command: {command}")
+            
+            result = subprocess.run(
+                command,
+                capture_output=True,
+                text=True,
+                shell=True
+            )
+            
+            if result.returncode == 0:
+                logging.info(f"Successfully imported timeline {timeline_name} to sketch {sketch_id}")
+                # Clean up the file after successful import
+                os.remove(file_path)
+                logging.info(f"Cleaned up file: {file_path}")
+                return True
+            else:
+                logging.error(f"Import failed: {result.stderr}")
+                return False
+                
+        except Exception as e:
+            logging.error(f"Error importing to Timesketch: {e}")
+            return False
+
+    def write_to_jsonl(self, results, sketch_id):
+        """Write results to sketch-specific JSONL file"""
+        if not results:
+            return False
+
+        file_path = self.get_sketch_file_path(sketch_id)
+        try:
+            with open(file_path, 'a') as f:
+                for result in results:
+                    if result and isinstance(result, str) and result.strip():
+                        try:
+                            # Validate JSON
+                            json.loads(result)
+                            f.write(f"{result}\n")
+                        except json.JSONDecodeError:
+                            logging.error(f"Invalid JSON: {result}")
+            return True
+        except Exception as e:
+            logging.error(f"Error writing to JSONL: {e}")
+            return False
+
     def get_new_messages(self):
         """Fetch new messages from database since last processed timestamp"""
         try:
@@ -98,9 +170,9 @@ class SecuritySketchOperator:
 
             messages_by_room = {}
             
-            # Get all active rooms first
+            # Update query to also fetch sketch_id
             cur.execute("""
-                SELECT DISTINCT r.id, r.name 
+                SELECT DISTINCT r.id, r.name, r.sketch_id 
                 FROM rooms r 
                 WHERE r.active = true
                 """)
@@ -108,10 +180,14 @@ class SecuritySketchOperator:
             rooms = cur.fetchall()
             logging.info(f"Found {len(rooms)} active rooms")
 
-            for room_id, room_name in rooms:
-                # Use the room-specific timestamp or default to very old date
+            for room_id, room_name, sketch_id in rooms:
+                # Skip rooms without sketch_id
+                if not sketch_id:
+                    logging.warning(f"Room {room_name} has no sketch_id, skipping")
+                    continue
+
                 last_processed = self.last_processed_timestamps.get(str(room_id), '1970-01-01')
-                logging.info(f"Checking room {room_name} (ID: {room_id}) for messages after {last_processed}")
+                logging.info(f"Checking room {room_name} (ID: {room_id}, Sketch ID: {sketch_id}) for messages after {last_processed}")
                 
                 cur.execute("""
                     SELECT m.content, m.created_at, u.username
@@ -126,6 +202,7 @@ class SecuritySketchOperator:
                     logging.info(f"Found {len(messages)} new messages in room {room_name}")
                     messages_by_room[room_id] = {
                         'name': room_name,
+                        'sketch_id': sketch_id,
                         'messages': [
                             {
                                 'content': msg[0],
@@ -134,9 +211,7 @@ class SecuritySketchOperator:
                             } for msg in messages
                         ]
                     }
-                    # Update last processed timestamp for this room
                     self.last_processed_timestamps[str(room_id)] = messages[-1][1].isoformat()
-                    # Save timestamps after each room update
                     self.save_last_processed_timestamps()
 
             cur.close()
@@ -261,22 +336,6 @@ class SecuritySketchOperator:
         logging.info(f"Total valid results to write: {len(results)}")
         return results
 
-    def write_to_jsonl(self, results, output_file='timesketch_events.jsonl'):
-        """Write results to JSONL file"""
-        if not results:
-            return
-
-        mode = 'a' if os.path.exists(output_file) else 'w'
-        with open(output_file, mode) as f:
-            for result in results:
-                if result and isinstance(result, str) and result.strip():
-                    try:
-                        # Validate JSON
-                        json.loads(result)
-                        f.write(f"{result}\n")
-                    except json.JSONDecodeError:
-                        logging.error(f"Invalid JSON: {result}")
-
     def run(self, interval_minutes=5):
         """Main operation loop"""
         while True:
@@ -284,15 +343,17 @@ class SecuritySketchOperator:
                 logging.info("Fetching new messages...")
                 messages_by_room = self.get_new_messages()
                 
-                if messages_by_room:
-                    logging.info("Analyzing messages with Gemini...")
-                    results = self.analyze_messages(messages_by_room)
+                for room_id, room_data in messages_by_room.items():
+                    sketch_id = room_data['sketch_id']
+                    logging.info(f"Processing room {room_data['name']} (Sketch ID: {sketch_id})")
+                    
+                    results = self.analyze_messages({room_id: room_data})
                     
                     if results:
-                        logging.info("Writing results to JSONL...")
-                        self.write_to_jsonl(results)
-                    
-                    self.save_last_processed_timestamps()
+                        file_path = self.get_sketch_file_path(sketch_id)
+                        if self.write_to_jsonl(results, sketch_id):
+                            # Import to Timesketch if we have new results
+                            self.import_to_timesketch(sketch_id, file_path)
                 
                 logging.info(f"Sleeping for {interval_minutes} minutes...")
                 sleep(interval_minutes * 60)
@@ -302,5 +363,18 @@ class SecuritySketchOperator:
                 sleep(60)  # Sleep for 1 minute on error before retrying
 
 if __name__ == "__main__":
+    logging.info("=" * 80)
+    logging.info("Starting Security Sketch Operator")
+    logging.info("=" * 80)
+    logging.info(f"Output directory: {os.getenv('OUTPUT_DIR', 'sketch_files')}")
+    logging.info(f"Database host: {os.getenv('DB_HOST', 'localhost')}")
+    logging.info(f"Database name: {os.getenv('DB_NAME', 'security_sketch')}")
+    logging.info("Initializing operator...")
+    
     operator = SecuritySketchOperator()
+    
+    logging.info("Security Sketch Operator initialized successfully")
+    logging.info("Starting main loop...")
+    logging.info("=" * 80)
+    
     operator.run()

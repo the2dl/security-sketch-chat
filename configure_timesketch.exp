@@ -1,0 +1,28 @@
+#!/usr/bin/expect -f
+
+set timeout -1
+
+# Start the timesketch config command
+spawn timesketch config
+
+# Handle the host URI prompt
+expect "What is the value for <host_uri> (URL of the Timesketch server):"
+send "$env(TS_HOST)\r"
+
+# Handle the auth mode prompt
+expect "What is the value for <auth_mode> (Authentication mode, valid choices are: \"userpass\" (user/pass) or \"oauth\"):"
+send "$env(TS_AUTH_MODE)\r"
+
+# Handle the username prompt
+expect "What is the value for <username> (The username of the Timesketch user):"
+send "$env(TS_USERNAME)\r"
+
+# Handle the password prompt
+expect "Password for user"
+send "$env(TS_PASSWORD)\r"
+
+expect eof
+
+# Set output format to JSON
+spawn timesketch config set output json
+expect eof

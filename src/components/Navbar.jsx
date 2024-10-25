@@ -38,7 +38,8 @@ function Navbar({ isRoomOwner, roomId }) {
           <img 
             src={theme === 'black' ? '/logo-light.svg' : '/logo-dark.svg'} 
             alt="Security Sketch Logo" 
-            className="h-[250px] w-auto -ml-40"
+            className="h-[250px] w-auto -ml-40 cursor-pointer"
+            onClick={() => navigate('/')}
           />
         </div>
         <div className="flex-none gap-3">
