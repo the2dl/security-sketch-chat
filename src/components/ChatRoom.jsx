@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaEye, FaEyeSlash, FaExternalLinkAlt } from 'react-icons/fa';
+import { FaEye, FaEyeSlash, FaExternalLinkAlt, FaCopy } from 'react-icons/fa';
 import { HiOutlineLogout } from 'react-icons/hi';
 
 function ChatRoom() {
@@ -477,6 +477,62 @@ function ChatRoom() {
     });
   }, [showRecoveryKeyModal, recoveryKey]);
 
+  // Add new state for copy buttons
+  const [showSecretKeyCopy, setShowSecretKeyCopy] = useState(false);
+  const [showRecoveryKeyCopy, setShowRecoveryKeyCopy] = useState(false);
+
+  // Helper function for copying and showing toast
+  const copyToClipboard = async (text, type) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      const toast = document.createElement('div');
+      toast.className = 'alert alert-success fixed bottom-4 right-4 w-auto z-50';
+      toast.innerHTML = `
+        <span>${type} copied to clipboard!</span>
+      `;
+      document.body.appendChild(toast);
+      setTimeout(() => {
+        toast.remove();
+      }, 3000);
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
+  // Update the secret input fields to use a single icon that toggles
+  const SecretInput = ({ value, onChange, placeholder, readOnly }) => {
+    const [showSecret, setShowSecret] = useState(false);
+    
+    return (
+      <div className="relative">
+        <input
+          type={showSecret ? "text" : "password"}
+          className={`input input-bordered w-full pr-12 rounded-xl ${
+            !readOnly ? "focus:ring-2 focus:ring-primary" : ""
+          } transition-all duration-300`}
+          value={value}
+          onChange={onChange}
+          placeholder={placeholder}
+          readOnly={readOnly}
+        />
+        <button
+          type="button"
+          onClick={() => {
+            if (showSecret) {
+              copyToClipboard(value, 'Secret key');
+              setShowSecret(false);
+            } else {
+              setShowSecret(true);
+            }
+          }}
+          className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
+        >
+          {showSecret ? <FaCopy className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
+        </button>
+      </div>
+    );
+  };
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -537,12 +593,10 @@ function ChatRoom() {
                 <label className="label">
                   <span className="label-text">Secret Key</span>
                 </label>
-                <input
-                  type={showSecretKey ? "text" : "password"}
-                  placeholder="Enter secret key"
-                  className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300"
+                <SecretInput
                   value={secretKey}
                   onChange={(e) => setSecretKey(e.target.value)}
+                  placeholder="Enter secret key"
                 />
               </div>
 
@@ -771,21 +825,10 @@ function ChatRoom() {
           <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
             <h3 className="font-bold text-lg mb-4">Room Secret Key</h3>
             <div className="form-control">
-              <div className="relative">
-                <input
-                  type={showSecretKey ? "text" : "password"}
-                  className="input input-bordered w-full pr-10"
-                  value={secretKey}
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowSecretKey(!showSecretKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
-                >
-                  {showSecretKey ? <FaEyeSlash className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
-                </button>
-              </div>
+              <SecretInput
+                value={secretKey}
+                readOnly={true}
+              />
             </div>
             <div className="modal-action mt-6">
               <button 
@@ -808,21 +851,10 @@ function ChatRoom() {
               Please save this recovery key. You'll need it to recover your session if you get disconnected:
             </p>
             <div className="form-control">
-              <div className="relative">
-                <input
-                  type={showRecoveryKey ? "text" : "password"}
-                  className="input input-bordered w-full pr-10"
-                  value={recoveryKey}
-                  readOnly
-                />
-                <button
-                  type="button"
-                  onClick={() => setShowRecoveryKey(!showRecoveryKey)}
-                  className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
-                >
-                  {showRecoveryKey ? <FaEyeSlash className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
-                </button>
-              </div>
+              <SecretInput
+                value={recoveryKey}
+                readOnly={true}
+              />
             </div>
             <div className="modal-action mt-6">
               <button 
