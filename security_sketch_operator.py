@@ -109,7 +109,7 @@ class SecuritySketchOperator:
 
     def get_sketch_file_path(self, sketch_id):
         """Get the path for a sketch's JSONL file"""
-        return os.path.join(self.output_dir, f"{sketch_id}.jsonl")
+        return os.path.join(self.output_dir, f"chat_sketch_{sketch_id}.jsonl")
 
     def import_to_timesketch(self, sketch_id, file_path):
         """Import JSONL file to Timesketch"""

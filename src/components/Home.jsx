@@ -150,7 +150,7 @@ function Home() {
   };
 
   return (
-    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] p-4 max-w-md mx-auto w-full">
+    <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] p-4 max-w-2xl mx-auto w-full">
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold mb-2 rounded-lg">Security Sketch</h1>
         <p className="text-base-content/70 rounded-lg">Create or join a secure sketching room</p>
