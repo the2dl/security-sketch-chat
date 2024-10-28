@@ -15,20 +15,51 @@ app.use((req, res, next) => {
   next();
 });
 
-// Update CORS configuration
-app.use(cors({
-  origin: "http://localhost:3001", // Your React app URL
+// Ensure API_KEY is properly loaded from environment
+const API_KEY = process.env.API_KEY;
+
+// Consolidate CORS configuration into a single instance
+const corsOptions = {
+  origin: "http://localhost:3001",
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-  credentials: true
-}));
+  credentials: true,
+  allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
+};
+
+app.use(cors(corsOptions));
+
+// Add middleware to check API key
+const validateApiKey = (req, res, next) => {
+  const apiKey = req.headers['x-api-key'];
+  
+  if (!apiKey || apiKey !== API_KEY) {
+    return res.status(401).json({ error: 'Invalid API key' });
+  }
+  
+  next();
+};
+
+// Add validateApiKey middleware to all API routes
+app.use('/api', validateApiKey);
 
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:3001",
     methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization"]
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
   }
+});
+
+// Add authentication middleware for Socket.IO
+io.use((socket, next) => {
+  const apiKey = socket.handshake.auth.apiKey;
+  
+  if (!apiKey || apiKey !== API_KEY) {
+    return next(new Error('Invalid API key'));
+  }
+  
+  next();
 });
 
 // Database connection
@@ -530,19 +561,13 @@ app.put('/api/rooms/:roomId/status', async (req, res) => {
 // Add these new endpoints for Timesketch integration
 app.post('/api/sketch/create', async (req, res) => {
   try {
-    const { name } = req.body;
-    
-    if (!name) {
-      return res.status(400).json({ error: 'Sketch name is required' });
-    }
-
-    console.log('Forwarding sketch creation to Flask API...');
     const response = await fetch('http://localhost:5001/api/sketch/create', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY
       },
-      body: JSON.stringify({ name })
+      body: JSON.stringify(req.body)
     });
 
     if (!response.ok) {
@@ -566,19 +591,13 @@ app.post('/api/sketch/create', async (req, res) => {
 
 app.post('/api/sketch/import', async (req, res) => {
   try {
-    const { sketch_id, file_path } = req.body;
-    
-    if (!sketch_id || !file_path) {
-      return res.status(400).json({ error: 'Sketch ID and file path are required' });
-    }
-
-    // Forward the request to Flask API
     const response = await fetch('http://localhost:5001/api/sketch/import', {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY
       },
-      body: JSON.stringify({ sketch_id, file_path })
+      body: JSON.stringify(req.body)
     });
 
     if (!response.ok) {

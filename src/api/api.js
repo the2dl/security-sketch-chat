@@ -2,10 +2,27 @@ import io from 'socket.io-client';
 
 let socket = null;
 
+// Add this near the top of the file, after the imports
+const API_KEY = process.env.REACT_APP_API_KEY;
+
+// Add the fetchWithAuth helper function
+const fetchWithAuth = async (url, options = {}) => {
+  return fetch(url, {
+    ...options,
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'x-api-key': API_KEY,
+      ...(options.headers || {})
+    }
+  });
+};
+
 // Initialize socket connection
 const initSocket = () => {
   socket = io('http://localhost:3000', {
     withCredentials: true,
+    auth: { apiKey: API_KEY }, // Add API key to socket connection
     transports: ['websocket']
   });
   return socket;
@@ -109,7 +126,7 @@ const onError = (callback) => {
 
 const getActiveUsers = async (roomId) => {
   try {
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/users`);
+    const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/users`);
     if (!response.ok) {
       throw new Error('Failed to fetch active users');
     }
@@ -154,142 +171,96 @@ export const api = {
   disconnect,
 
   createRoom: async (name, userId, username) => {
-    try {
-      const response = await fetch('http://localhost:3000/api/rooms', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name, userId, username }), // Make sure username is included
-      });
+    const response = await fetchWithAuth('http://localhost:3000/api/rooms', {
+      method: 'POST',
+      body: JSON.stringify({ name, userId, username }),
+    });
 
-      if (!response.ok) {
-        throw new Error('Failed to create room');
-      }
-
-      const roomData = await response.json();
-      
-      // Store the sketch_id in localStorage for future use
-      if (roomData.sketch_id) {
-        localStorage.setItem(`sketchId_${roomData.id}`, roomData.sketch_id);
-      }
-
-      return roomData;
-    } catch (error) {
-      console.error('Error creating room:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error('Failed to create room');
     }
+
+    const roomData = await response.json();
+    
+    // Store the sketch_id in localStorage for future use
+    if (roomData.sketch_id) {
+      localStorage.setItem(`sketchId_${roomData.id}`, roomData.sketch_id);
+    }
+
+    return roomData;
   },
 
   getActiveRooms: async () => {
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms`);
-      if (!response.ok) {
-        throw new Error('Failed to fetch active rooms');
-      }
-      return await response.json();
-    } catch (error) {
-      console.error('Error fetching active rooms:', error);
-      return [];
+    const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms`);
+
+    if (!response.ok) {
+      throw new Error('Failed to fetch active rooms');
     }
+
+    return await response.json();
   },
 
   // Add getRoomDetails function
   getRoomDetails: async (roomId) => {
-    try {
-      const response = await fetch(`http://localhost:3000/api/rooms/${roomId}`);
-      
-      if (!response.ok) {
-        throw new Error('Failed to fetch room details');
-      }
-      
-      const roomData = await response.json();
-      
-      // Add sketch_id from localStorage if not present in response
-      if (!roomData.sketch_id) {
-        roomData.sketch_id = localStorage.getItem(`sketchId_${roomId}`);
-      }
-      
-      return roomData;
-    } catch (error) {
-      console.error('Error fetching room details:', error);
-      throw error;
+    const response = await fetchWithAuth(`http://localhost:3000/api/rooms/${roomId}`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch room details');
     }
+    
+    const roomData = await response.json();
+    
+    // Add sketch_id from localStorage if not present in response
+    if (!roomData.sketch_id) {
+      roomData.sketch_id = localStorage.getItem(`sketchId_${roomId}`);
+    }
+    
+    return roomData;
   },
 
   // Add closeRoom function if not already present
   closeRoom: async (roomId) => {
-    try {
-      const userId = localStorage.getItem('userId');
-      const response = await fetch(`http://localhost:3000/api/rooms/${roomId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          active: false,
-          userId
-        }),
-      });
+    const userId = localStorage.getItem('userId');
+    const response = await fetchWithAuth(`http://localhost:3000/api/rooms/${roomId}/status`, {
+      method: 'PUT',
+      body: JSON.stringify({ active: false, userId }),
+    });
 
-      if (!response.ok) {
-        throw new Error('Failed to close room');
-      }
-
-      // Clean up localStorage
-      localStorage.removeItem(`sketchId_${roomId}`);
-      
-      return response.json();
-    } catch (error) {
-      console.error('Error closing room:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error('Failed to close room');
     }
+
+    // Clean up localStorage
+    localStorage.removeItem(`sketchId_${roomId}`);
+    
+    return response.json();
   },
 
   // Add new Timesketch functions
   createSketch: async (name) => {
-    try {
-      const response = await fetch('http://localhost:3000/api/sketch/create', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ name }),
-      });
+    const response = await fetchWithAuth('http://localhost:3000/api/sketch/create', {
+      method: 'POST',
+      body: JSON.stringify({ name }),
+    });
 
-      if (!response.ok) {
-        throw new Error('Failed to create sketch');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error('Error creating sketch:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error('Failed to create sketch');
     }
+
+    return response.json();
   },
 
   importTimeline: async (sketchId, filePath) => {
-    try {
-      const response = await fetch('http://localhost:3000/api/sketch/import', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ 
-          sketch_id: sketchId, 
-          file_path: filePath 
-        }),
-      });
+    const response = await fetchWithAuth('http://localhost:3000/api/sketch/import', {
+      method: 'POST',
+      body: JSON.stringify({ sketch_id: sketchId, file_path: filePath }),
+    });
 
-      if (!response.ok) {
-        throw new Error('Failed to import timeline');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error('Error importing timeline:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error('Failed to import timeline');
     }
+
+    return response.json();
   },
 
   // Add helper function to get sketch URL
@@ -300,23 +271,15 @@ export const api = {
 
   // Add recoverSession function
   recoverSession: async (roomId, recoveryKey) => {
-    try {
-      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/recover`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ recoveryKey }),
-      });
+    const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/recover`, {
+      method: 'POST',
+      body: JSON.stringify({ recoveryKey }),
+    });
 
-      if (!response.ok) {
-        throw new Error('Invalid recovery key');
-      }
-
-      return response.json();
-    } catch (error) {
-      console.error('Error recovering session:', error);
-      throw error;
+    if (!response.ok) {
+      throw new Error('Invalid recovery key');
     }
+
+    return response.json();
   },
 };

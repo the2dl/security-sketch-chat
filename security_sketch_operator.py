@@ -31,7 +31,8 @@ DB_CONFIG = {
     'user': os.getenv('DB_USER', 'sketch_user'),
     'password': os.getenv('DB_PASSWORD'),
     'host': os.getenv('DB_HOST', 'localhost'),
-    'port': int(os.getenv('DB_PORT', 5432))
+    'port': int(os.getenv('DB_PORT', 5432)),
+    'application_name': 'SecuritySketchOperator'
 }
 
 # Validate DB configuration
@@ -52,6 +53,12 @@ class SecuritySketchOperator:
         # Load the last processed timestamps at initialization
         self.load_last_processed_timestamps()
         logging.info(f"Initialized with timestamps: {self.last_processed_timestamps}")
+
+        # Validate API key on initialization
+        if not os.getenv('API_KEY'):
+            raise ValueError("API_KEY not found in environment variables")
+            
+        self.api_key = os.getenv('API_KEY')
 
     def load_processed_messages(self):
         """Load set of processed message IDs"""
@@ -168,6 +175,35 @@ class SecuritySketchOperator:
             conn = psycopg2.connect(**DB_CONFIG)
             cur = conn.cursor()
 
+            # Add API key validation check
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS api_keys (
+                    key TEXT PRIMARY KEY,
+                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    last_used TIMESTAMP WITH TIME ZONE
+                )
+            """)
+            
+            # Insert the API key from environment if not exists
+            cur.execute("""
+                INSERT INTO api_keys (key) 
+                VALUES (%s) 
+                ON CONFLICT (key) DO NOTHING
+            """, (self.api_key,))
+            conn.commit()
+
+            # Validate API key
+            cur.execute("""
+                UPDATE api_keys 
+                SET last_used = CURRENT_TIMESTAMP 
+                WHERE key = %s 
+                RETURNING key
+            """, (self.api_key,))
+            
+            if not cur.fetchone():
+                logging.error("Invalid API key")
+                return {}
+
             messages_by_room = {}
             
             # Update query to also fetch sketch_id
@@ -221,6 +257,11 @@ class SecuritySketchOperator:
         except Exception as e:
             logging.error(f"Database error: {e}")
             return {}
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
 
     def analyze_messages(self, messages_by_room):
         """Send messages to Gemini for analysis and get Timesketch format back"""
@@ -269,7 +310,9 @@ class SecuritySketchOperator:
         {{"message": "PowerShell execution with base64 encoded command detected", "datetime": "2024-10-16T08:20:00Z", "timestamp_desc": "Process Execution", "computer_name": "WORKSTATION01", "observer_name": "eve"}}        
         {{"message": "Multiple failed login attempts detected from IP 10.0.0.5", "datetime": "2024-10-16T08:25:00Z", "timestamp_desc": "Authentication", "source_ip": "10.0.0.5", "observer_name": "frank"}}
         {{"message": "Scheduled task created for persistence", "datetime": "2024-10-16T08:30:00Z", "timestamp_desc": "Scheduled Task Creation", "computer_name": "SERVER02", "observer_name": "grace"}}
-
+        {{"message": "Malicious file detected with MD5 hash d41d8cd98f00b204e9800998ecf8427e", "datetime": "2024-10-16T08:35:00Z", "timestamp_desc": "File Hash", "md5_hash": "d41d8cd98f00b204e9800998ecf8427e", "observer_name": "henry"}}
+        {{"message": "Suspicious executable found with SHA256 hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "datetime": "2024-10-16T08:40:00Z", "timestamp_desc": "File Hash", "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "observer_name": "ivy"}}
+        
         Important notes:
         1. Always include the observer_name (the person reporting the activity)
         2. Only include technical details (IPs, ports, protocols) that were explicitly mentioned in the message
@@ -278,6 +321,7 @@ class SecuritySketchOperator:
         5. If multiple indicators are mentioned in a single message, create separate entries for each
         6. If you see wording like "contain" or "network contain" and then a weird name like "ABC123" or "CPC1234" etc, these are most likely the hostname of the impacted machine. Use the computer_name field for this
         7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
+        8. For file hashes, use md5_hash and sha256_hash fields accordingly
 
         There may be times it's just "regular chat" and you don't need to convert anything, you need to make that decision. Your focus should be on turning indicators into timesketch, not worrying about common back and forth. If you decide it's regular chat, write back "Regular chat: no sketch update"
 
@@ -336,8 +380,18 @@ class SecuritySketchOperator:
         logging.info(f"Total valid results to write: {len(results)}")
         return results
 
+    def validate_api_key(self, provided_key):
+        """Validate the provided API key"""
+        return provided_key == self.api_key
+
     def run(self, interval_minutes=5):
         """Main operation loop"""
+        if not self.validate_api_key(self.api_key):
+            logging.error("Invalid API key. Exiting...")
+            return
+
+        logging.info("API key validated successfully")
+        
         while True:
             try:
                 logging.info("Fetching new messages...")
@@ -366,15 +420,29 @@ if __name__ == "__main__":
     logging.info("=" * 80)
     logging.info("Starting Security Sketch Operator")
     logging.info("=" * 80)
+    
+    # Validate required environment variables
+    required_vars = ['API_KEY', 'DB_PASSWORD', 'GOOGLE_API_KEY']
+    missing_vars = [var for var in required_vars if not os.getenv(var)]
+    
+    if missing_vars:
+        logging.error(f"Missing required environment variables: {', '.join(missing_vars)}")
+        exit(1)
+    
     logging.info(f"Output directory: {os.getenv('OUTPUT_DIR', 'sketch_files')}")
     logging.info(f"Database host: {os.getenv('DB_HOST', 'localhost')}")
     logging.info(f"Database name: {os.getenv('DB_NAME', 'security_sketch')}")
-    logging.info("Initializing operator...")
+    logging.info("Validating API key...")
     
-    operator = SecuritySketchOperator()
-    
-    logging.info("Security Sketch Operator initialized successfully")
-    logging.info("Starting main loop...")
-    logging.info("=" * 80)
-    
-    operator.run()
+    try:
+        operator = SecuritySketchOperator()
+        logging.info("Security Sketch Operator initialized successfully")
+        logging.info("Starting main loop...")
+        logging.info("=" * 80)
+        operator.run()
+    except ValueError as e:
+        logging.error(f"Initialization error: {e}")
+        exit(1)
+    except Exception as e:
+        logging.error(f"Unexpected error: {e}")
+        exit(1)
