@@ -312,16 +312,24 @@ class SecuritySketchOperator:
         {{"message": "Scheduled task created for persistence", "datetime": "2024-10-16T08:30:00Z", "timestamp_desc": "Scheduled Task Creation", "computer_name": "SERVER02", "observer_name": "grace"}}
         {{"message": "Malicious file detected with MD5 hash d41d8cd98f00b204e9800998ecf8427e", "datetime": "2024-10-16T08:35:00Z", "timestamp_desc": "File Hash", "md5_hash": "d41d8cd98f00b204e9800998ecf8427e", "observer_name": "henry"}}
         {{"message": "Suspicious executable found with SHA256 hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "datetime": "2024-10-16T08:40:00Z", "timestamp_desc": "File Hash", "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "observer_name": "ivy"}}
+        {{"message": "Suspicious executable detected at C:\\ProgramData\\XCerfzz.exe [T1059.003]", "datetime": "2024-10-16T08:45:00Z", "timestamp_desc": "File Creation", "file_path": "C:\\ProgramData\\XCerfzz.exe", "computer_name": "WORKSTATION01", "observer_name": "jack"}}
+
+        Example of message with multiple attributes that should create multiple entries:
+        Message: "saw some weird processes like C:\\Windows\\System32\\ripFAULT.exe running with the hash 0c32215fbaf5e83772997a7891b1d2ad"
+        Should create two entries:
+        {{"message": "Suspicious process detected: C:\\Windows\\System32\\ripFAULT.exe [T1059]", "datetime": "2024-10-16T08:50:00Z", "timestamp_desc": "Process Execution", "file_path": "C:\\Windows\\System32\\ripFAULT.exe", "observer_name": "alice"}}
+        {{"message": "Process hash identified: 0c32215fbaf5e83772997a7891b1d2ad [T1059]", "datetime": "2024-10-16T08:50:00Z", "timestamp_desc": "File Hash", "md5_hash": "0c32215fbaf5e83772997a7891b1d2ad", "observer_name": "alice"}}
         
         Important notes:
         1. Always include the observer_name (the person reporting the activity)
         2. Only include technical details (IPs, ports, protocols) that were explicitly mentioned in the message
         3. Include timestamp from when the message was sent
         4. Use appropriate timestamp_desc values like "Network Connection", "DNS Activity", "Network Security", "Data Loss Prevention", "Process Execution", "Authentication"
-        5. If multiple indicators are mentioned in a single message, create separate entries for each
+        5. If multiple indicators are mentioned in a single message (like file paths AND hashes, or IPs AND ports), create separate entries for each indicator while maintaining the relationship in the message field
         6. If you see wording like "contain" or "network contain" and then a weird name like "ABC123" or "CPC1234" etc, these are most likely the hostname of the impacted machine. Use the computer_name field for this
         7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
         8. For file hashes, use md5_hash and sha256_hash fields accordingly
+        9. For file paths, use the file_path field and include the computer_name if available
 
         There may be times it's just "regular chat" and you don't need to convert anything, you need to make that decision. Your focus should be on turning indicators into timesketch, not worrying about common back and forth. If you decide it's regular chat, write back "Regular chat: no sketch update"
 
