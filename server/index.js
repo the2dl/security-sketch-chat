@@ -64,7 +64,7 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('join_room', async ({ roomId, username, secretKey }) => {
+  socket.on('join_room', async ({ roomId, username, userId, secretKey, isOwner }) => {
     try {
       // First verify the room and secret key
       const roomResult = await pool.query(
@@ -77,141 +77,91 @@ io.on('connection', (socket) => {
         return;
       }
 
-      // Get room name from result
-      const roomName = roomResult.rows[0].name;
-
-      // Check if this username is already registered in this room
-      const existingUserResult = await pool.query(
-        `SELECT u.id, u.username 
-         FROM users u
-         JOIN room_participants rp ON u.id = rp.user_id
-         WHERE rp.room_id = $1 AND LOWER(u.username) = LOWER($2)
-         LIMIT 1`,
-        [roomId, username]
-      );
-
-      let userId;
+      const room = roomResult.rows[0];
       
-      if (existingUserResult.rows.length > 0) {
-        // Username exists in this room
-        userId = existingUserResult.rows[0].id;
-        
-        // Update their last joined timestamp
-        await pool.query(
-          `UPDATE room_participants 
-           SET joined_at = CURRENT_TIMESTAMP, 
-               active = true
-           WHERE room_id = $1 AND user_id = $2`,
+      let recoveryKey;
+      
+      if (userId) {
+        // For recovered sessions or owners
+        const participantResult = await pool.query(
+          'SELECT recovery_key FROM room_participants WHERE room_id = $1 AND user_id = $2',
           [roomId, userId]
         );
+        recoveryKey = participantResult.rows[0]?.recovery_key;
+        
+        if (!recoveryKey) {
+          // Generate new recovery key if none exists
+          recoveryKey = crypto.randomBytes(16).toString('hex');
+        }
+        
+        // Update participant with recovery key
+        await pool.query(
+          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3)
+           ON CONFLICT (room_id, user_id) 
+           DO UPDATE SET active = true, joined_at = CURRENT_TIMESTAMP, recovery_key = $3`,
+          [roomId, userId, recoveryKey]
+        );
+        
       } else {
-        // Create new user with UUID
-        userId = uuidv4(); // Make sure to import uuidv4
-        const userResult = await pool.query(
-          'INSERT INTO users (id, username) VALUES ($1, $2) RETURNING id',
-          [userId, username]
-        );
-        userId = userResult.rows[0].id;
+        // For new users
+        recoveryKey = crypto.randomBytes(16).toString('hex');
+        const newUserId = uuidv4();
         
-        // Add to room participants
+        // Create new user and participant records
         await pool.query(
-          `INSERT INTO room_participants (room_id, user_id, joined_at, active) 
-           VALUES ($1, $2, CURRENT_TIMESTAMP, true)`,
-          [roomId, userId]
+          'INSERT INTO users (id, username) VALUES ($1, $2)',
+          [newUserId, username]
         );
+        
+        await pool.query(
+          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3)`,
+          [roomId, newUserId, recoveryKey]
+        );
+        
+        userId = newUserId;
       }
 
-      // Join socket room
-      socket.join(roomId);
-      
-      // Get room messages - Add LIMIT and ORDER to ensure messages are unique
+      // Get messages and active users
       const messagesResult = await pool.query(
-        `SELECT DISTINCT ON (m.id)
-          m.id,
-          m.content,
-          m.created_at as timestamp,
-          u.username,
-          m.room_id as "roomId"
-         FROM messages m
-         JOIN users u ON m.user_id = u.id
-         WHERE m.room_id = $1
-         ORDER BY m.id, m.created_at DESC
-         LIMIT 100`,
+        `SELECT m.*, u.username 
+         FROM messages m 
+         JOIN users u ON m.user_id = u.id 
+         WHERE m.room_id = $1 
+         ORDER BY m.created_at ASC`,
         [roomId]
       );
 
-      // Get active users in room - Modified query to ensure accuracy
       const activeUsersResult = await pool.query(
-        `SELECT DISTINCT ON (u.username) u.id, u.username
-         FROM room_participants rp
-         JOIN users u ON rp.user_id = u.id
-         WHERE rp.room_id = $1 AND rp.active = true
-         ORDER BY u.username, rp.joined_at DESC`,
+        `SELECT u.id, u.username 
+         FROM users u 
+         JOIN room_participants rp ON u.id = rp.user_id 
+         WHERE rp.room_id = $1 AND rp.active = true`,
         [roomId]
       );
 
-      // Store user info in socket for later use
-      socket.userData = { userId, username, roomId };
+      console.log('Emitting room_joined with recovery key:', recoveryKey);
 
-      // Start keepalive immediately after joining
-      await pool.query(
-        `UPDATE room_participants 
-         SET active = true, 
-             joined_at = CURRENT_TIMESTAMP
-         WHERE room_id = $1 AND user_id = $2`,
-        [roomId, userId]
-      );
+      // Determine if user is room owner
+      const isRoomOwner = isOwner || (userId === room.owner_id);
+      console.log('User owner status:', { userId, roomOwnerId: room.owner_id, isRoomOwner });
 
-      // Broadcast to ALL clients in the room (including sender) that user list should be updated
-      io.in(roomId).emit('update_active_users', {
-        activeUsers: activeUsersResult.rows
-      });
-
-      // Emit joined event with room data to the joining user
       socket.emit('room_joined', {
         messages: messagesResult.rows,
         activeUsers: activeUsersResult.rows,
-        userId,
-        roomName
+        userId: userId,
+        username: username,
+        roomName: room.name,
+        recoveryKey: recoveryKey,
+        isOwner: isRoomOwner  // Include owner status in response
       });
 
-      // Notify others of new user
+      // Notify others
       socket.to(roomId).emit('user_joined', {
-        id: userId,
-        username
+        userId: userId,
+        username: username
       });
-
-      // Modify the ping interval to be more frequent and add error handling
-      const pingInterval = setInterval(async () => {
-        try {
-          const result = await pool.query(
-            `UPDATE room_participants 
-             SET active = true, 
-                 joined_at = CURRENT_TIMESTAMP
-             WHERE room_id = $1 AND user_id = $2
-             RETURNING active`, // Add RETURNING to verify update
-            [roomId, userId]
-          );
-          
-          if (!result.rows.length) {
-            console.log('User activity update failed - reconnecting user');
-            // Try to reactivate the user
-            await pool.query(
-              `INSERT INTO room_participants (room_id, user_id, active, joined_at)
-               VALUES ($1, $2, true, CURRENT_TIMESTAMP)
-               ON CONFLICT (room_id, user_id) 
-               DO UPDATE SET active = true, joined_at = CURRENT_TIMESTAMP`,
-              [roomId, userId]
-            );
-          }
-        } catch (error) {
-          console.error('Error in keep-alive:', error);
-        }
-      }, 10000); // Reduce to 10 seconds
-
-      // Store the interval in socket for cleanup
-      socket.pingInterval = pingInterval;
-
     } catch (error) {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });
@@ -316,64 +266,98 @@ io.on('connection', (socket) => {
 
 // API Routes
 app.post('/api/rooms', async (req, res) => {
-  const { name, userId } = req.body;
+  const { name, userId, username } = req.body;
   
-  if (!name || typeof name !== 'string' || name.trim() === '') {
-    return res.status(400).json({ error: 'Room name is required' });
+  // Add debug logging
+  console.log('Creating room with:', { name, userId, username });
+  
+  // Validate required fields
+  if (!name || !userId || !username) {
+    console.error('Missing required fields:', { name, userId, username });
+    return res.status(400).json({ 
+      error: 'Missing required fields',
+      details: {
+        name: !name,
+        userId: !userId,
+        username: !username
+      }
+    });
   }
 
-  const roomId = uuidv4();
-  const secretKey = generateSecureKey();
+  const client = await pool.connect();
 
   try {
+    await client.query('BEGIN');
+    
+    // Log user creation attempt
+    console.log('Creating/updating user:', { userId, username });
+
+    // Create or update user with provided username
+    const userResult = await client.query(
+      `INSERT INTO users (id, username) 
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE 
+       SET username = EXCLUDED.username
+       RETURNING id, username`,
+      [userId, username]
+    );
+
+    console.log('User created/updated:', userResult.rows[0]);
+
+    // Create room with the user as owner
+    const roomId = uuidv4();
+    const secretKey = generateSecureKey();
+    const roomResult = await client.query(
+      `INSERT INTO rooms (id, name, secret_key, owner_id, sketch_id) 
+       VALUES ($1, $2, $3, $4, $5) 
+       RETURNING *`,
+      [roomId, name, secretKey, userId, null] // Use the same userId
+    );
+
+    // Add user as room participant with the same userId
+    await client.query(
+      `INSERT INTO room_participants (room_id, user_id, joined_at, active) 
+       VALUES ($1, $2, CURRENT_TIMESTAMP, true)`,
+      [roomId, userId]
+    );
+
+    // Create Timesketch sketch after room is created
     console.log('Creating Timesketch sketch...');
-    // Use native fetch instead of node-fetch
     const sketchResponse = await fetch('http://localhost:5001/api/sketch/create', {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json'
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
     });
 
     if (!sketchResponse.ok) {
-      const errorText = await sketchResponse.text();
-      console.error('Sketch creation failed:', errorText);
       throw new Error('Failed to create Timesketch sketch');
     }
 
     const sketchData = await sketchResponse.json();
     console.log('Sketch creation successful:', sketchData);
 
-    // First ensure the user exists with UUID
-    const userResult = await pool.query(
-      'INSERT INTO users (id, username) VALUES ($1, $2) ON CONFLICT (id) DO NOTHING RETURNING id',
-      [userId, `user_${userId.slice(0, 8)}`]
+    // Update room with sketch_id
+    await client.query(
+      'UPDATE rooms SET sketch_id = $1 WHERE id = $2',
+      [sketchData.sketch_id, roomId]
     );
 
-    // Then create the room with owner_id and sketch_id
-    const result = await pool.query(
-      'INSERT INTO rooms (id, name, secret_key, owner_id, sketch_id) VALUES ($1, $2, $3, $4, $5) RETURNING *',
-      [roomId, name.trim(), secretKey, userId, sketchData.sketch_id]
+    // Get updated room data
+    const updatedRoomResult = await client.query(
+      'SELECT * FROM rooms WHERE id = $1',
+      [roomId]
     );
 
-    const roomData = {
-      id: result.rows[0].id,
-      name: result.rows[0].name,
-      secret_key: secretKey,
-      created_at: result.rows[0].created_at,
-      owner_id: result.rows[0].owner_id,
-      sketch_id: sketchData.sketch_id
-    };
+    await client.query('COMMIT');
 
-    console.log('Room created successfully:', roomData);
-    res.json(roomData);
+    console.log('Room created successfully:', updatedRoomResult.rows[0]);
+    res.json(updatedRoomResult.rows[0]);
   } catch (error) {
+    await client.query('ROLLBACK');
     console.error('Error creating room:', error);
-    res.status(500).json({ 
-      error: 'Failed to create room',
-      details: error.message 
-    });
+    res.status(500).json({ error: 'Failed to create room' });
+  } finally {
+    client.release();
   }
 });
 
@@ -609,6 +593,69 @@ app.post('/api/sketch/import', async (req, res) => {
   }
 });
 
+// Add new endpoint for recovery
+app.post('/api/rooms/:roomId/recover', async (req, res) => {
+  const { recoveryKey } = req.body;
+  
+  try {
+    console.log('Attempting recovery with:', {
+      roomId: req.params.roomId,
+      recoveryKey
+    });
+
+    // First, let's check what recovery keys exist for this room
+    const checkKeys = await pool.query(
+      `SELECT rp.user_id, rp.recovery_key, r.owner_id
+       FROM room_participants rp
+       JOIN rooms r ON r.id = rp.room_id
+       WHERE rp.room_id = $1`,
+      [req.params.roomId]
+    );
+    
+    console.log('Available recovery keys:', checkKeys.rows);
+
+    const result = await pool.query(
+      `SELECT 
+        CASE 
+          WHEN r.owner_id = rp.user_id THEN r.owner_id
+          ELSE rp.user_id 
+        END as user_id,
+        rp.recovery_key,
+        u.username,
+        r.owner_id,
+        r.name as room_name
+       FROM room_participants rp
+       JOIN users u ON rp.user_id = u.id
+       JOIN rooms r ON rp.room_id = r.id
+       WHERE rp.room_id = $1 AND rp.recovery_key = $2`,
+      [req.params.roomId, recoveryKey]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Invalid recovery key' });
+    }
+
+    const userData = result.rows[0];
+    
+    // Add debug logging
+    console.log('Recovery data:', {
+      userId: userData.user_id,
+      ownerId: userData.owner_id,
+      isOwner: userData.user_id === userData.owner_id
+    });
+    
+    res.json({
+      userId: userData.user_id,
+      username: userData.username,
+      isOwner: userData.user_id === userData.owner_id,
+      roomName: userData.room_name
+    });
+  } catch (error) {
+    console.error('Error recovering session:', error);
+    res.status(500).json({ error: 'Failed to recover session' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
@@ -643,3 +690,4 @@ function generateSecureKey(length = 12) {
            Math.random().toString(36).slice(2);
   }
 }
+

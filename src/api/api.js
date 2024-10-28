@@ -11,7 +11,7 @@ const initSocket = () => {
   return socket;
 };
 
-const joinRoom = (roomId, username, secretKey) => {
+const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false) => {
   console.log('Joining room:', { roomId, username });
   if (!socket) {
     socket = initSocket();
@@ -25,14 +25,22 @@ const joinRoom = (roomId, username, secretKey) => {
 
     socket.once('room_joined', (data) => {
       console.log('Room joined successfully:', data);
-      // Store userId in localStorage when received from server
       if (data.userId) {
         localStorage.setItem(`userId_${roomId}`, data.userId);
+      }
+      if (data.recoveryKey) {
+        localStorage.setItem(`recoveryKey_${roomId}`, data.recoveryKey);
       }
       resolve(data);
     });
 
-    socket.emit('join_room', { roomId, username, secretKey });
+    socket.emit('join_room', { 
+      roomId, 
+      username, 
+      secretKey,
+      userId,
+      isOwner
+    });
   });
 };
 
@@ -130,49 +138,6 @@ const disconnect = () => {
 };
 
 // Create new room
-export const createRoom = async (name, userId) => {
-  try {
-    const response = await fetch('http://localhost:3000/api/rooms', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ name, userId }),
-    });
-
-    if (!response.ok) {
-      throw new Error('Failed to create room');
-    }
-
-    const roomData = await response.json();
-    
-    // Store the sketch_id in localStorage for future use
-    if (roomData.sketch_id) {
-      localStorage.setItem(`sketchId_${roomData.id}`, roomData.sketch_id);
-    }
-
-    return roomData;
-  } catch (error) {
-    console.error('Error creating room:', error);
-    throw error;
-  }
-};
-
-// Add this new function
-const getActiveRooms = async () => {
-  try {
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms`);
-    if (!response.ok) {
-      throw new Error('Failed to fetch active rooms');
-    }
-    return await response.json();
-  } catch (error) {
-    console.error('Error fetching active rooms:', error);
-    return [];
-  }
-};
-
-// Update the api export to include getActiveRooms
 export const api = {
   initSocket,
   joinRoom,
@@ -187,8 +152,47 @@ export const api = {
   getActiveUsers,
   cleanup,
   disconnect,
-  createRoom,
-  getActiveRooms,
+
+  createRoom: async (name, userId, username) => {
+    try {
+      const response = await fetch('http://localhost:3000/api/rooms', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ name, userId, username }), // Make sure username is included
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to create room');
+      }
+
+      const roomData = await response.json();
+      
+      // Store the sketch_id in localStorage for future use
+      if (roomData.sketch_id) {
+        localStorage.setItem(`sketchId_${roomData.id}`, roomData.sketch_id);
+      }
+
+      return roomData;
+    } catch (error) {
+      console.error('Error creating room:', error);
+      throw error;
+    }
+  },
+
+  getActiveRooms: async () => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms`);
+      if (!response.ok) {
+        throw new Error('Failed to fetch active rooms');
+      }
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching active rooms:', error);
+      return [];
+    }
+  },
 
   // Add getRoomDetails function
   getRoomDetails: async (roomId) => {
@@ -292,5 +296,27 @@ export const api = {
   getSketchUrl: (sketchId) => {
     const timesketchHost = process.env.REACT_APP_TIMESKETCH_HOST || 'http://localhost:5001';
     return `${timesketchHost}/sketch/${sketchId}/explore`;
+  },
+
+  // Add recoverSession function
+  recoverSession: async (roomId, recoveryKey) => {
+    try {
+      const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/recover`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ recoveryKey }),
+      });
+
+      if (!response.ok) {
+        throw new Error('Invalid recovery key');
+      }
+
+      return response.json();
+    } catch (error) {
+      console.error('Error recovering session:', error);
+      throw error;
+    }
   },
 };

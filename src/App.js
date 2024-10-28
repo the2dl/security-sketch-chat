@@ -2,7 +2,7 @@ import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/Navbar';
 import Home from './components/Home';
-import ChatRoom from './components/ChatRoom';
+import ChatRoom from './components/ChatRoom'; // This now imports from the index.jsx in ChatRoom folder
 
 function App() {
   return (

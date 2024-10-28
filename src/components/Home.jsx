@@ -13,6 +13,12 @@ function Home() {
   const [currentPage, setCurrentPage] = useState(1);
   const roomsPerPage = 5;
   const [creatingSketch, setCreatingSketch] = useState(false);
+  const [showRecoveryInput, setShowRecoveryInput] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [recoveryError, setRecoveryError] = useState(null);
+  const [selectedRoom, setSelectedRoom] = useState(null);
+  const [username, setUsername] = useState('');
+  const [showCreateModal, setShowCreateModal] = useState(false);
 
   useEffect(() => {
     fetchActiveRooms();
@@ -37,41 +43,44 @@ function Home() {
   };
 
   const createNewSketch = async () => {
-    if (!sketchName.trim()) return;
+    if (!sketchName.trim() || !username.trim()) return;
     
     try {
       setError(null);
-      setCreatingSketch(true); // Start loading
+      setCreatingSketch(true);
       
-      // Generate a temporary userId if one doesn't exist
-      let userId = localStorage.getItem('userId');
-      if (!userId) {
-        userId = uuidv4();
-        localStorage.setItem('userId', userId);
-      }
-
-      // Create room (which now includes Timesketch sketch creation)
-      const room = await api.createRoom(sketchName, userId);
+      // Get existing userId or create new one
+      const userId = localStorage.getItem('userId') || uuidv4();
+      
+      // Store username and userId in localStorage
+      localStorage.setItem('username', username);
+      localStorage.setItem('userId', userId);
+      
+      // Create room with username
+      const room = await api.createRoom(sketchName, userId, username);
       
       if (!room || !room.id || !room.sketch_id) {
         throw new Error('Invalid room data received');
       }
 
-      // Navigate to the new room
+      // Store room-specific userId after room is created
+      localStorage.setItem(`userId_${room.id}`, userId);
+
       navigate(`/chat/${room.id}`, { 
         state: { 
           sketchName,
           secretKey: room.secret_key,
           isNewRoom: true,
           userId,
-          sketch_id: room.sketch_id // Pass sketch_id to chat room
+          username,
+          sketch_id: room.sketch_id
         } 
       });
     } catch (err) {
       setError('Failed to create room: ' + (err.message || 'Unknown error'));
-      console.error(err);
     } finally {
-      setCreatingSketch(false); // Stop loading regardless of outcome
+      setCreatingSketch(false);
+      setShowCreateModal(false);
     }
   };
 
@@ -93,6 +102,33 @@ function Home() {
     }
   };
 
+  const handleRecovery = async (roomId) => {
+    try {
+      setRecoveryError(null);
+      console.log('Attempting recovery with key:', recoveryKey);
+      const userData = await api.recoverSession(roomId, recoveryKey);
+      
+      // Add debug logging
+      console.log('Recovery response:', userData);
+      
+      // Store original user ID for ANY user
+      localStorage.setItem(`userId_${roomId}`, userData.userId);
+      
+      navigate(`/chat/${roomId}`, {
+        state: {
+          isRecovery: true,
+          username: userData.username,
+          userId: userData.userId,
+          isOwner: userData.isOwner,  // Verify this is being set correctly
+          roomName: userData.roomName
+        }
+      });
+    } catch (error) {
+      console.error('Recovery error:', error);
+      setRecoveryError('Invalid recovery key');
+    }
+  };
+
   // Add debug logging
   console.log('Active Rooms:', activeRooms);
 
@@ -105,6 +141,12 @@ function Home() {
   // Add this pagination handler
   const handlePageChange = (pageNumber) => {
     setCurrentPage(pageNumber);
+  };
+
+  const handleCreateClick = () => {
+    // Pre-fill username if it exists in localStorage
+    setUsername(localStorage.getItem('username') || '');
+    setShowCreateModal(true);
   };
 
   return (
@@ -125,26 +167,12 @@ function Home() {
           {/* Create Sketch Section */}
           <div className="space-y-4">
             <h2 className="card-title text-xl">Create New Sketch</h2>
-            <div className="join w-full rounded-xl overflow-hidden">
-              <input
-                type="text"
-                placeholder="Enter sketch name..."
-                className="input input-bordered join-item flex-1 focus:outline-none"
-                value={sketchName}
-                onChange={(e) => setSketchName(e.target.value)}
-              />
-              <button 
-                className="btn btn-primary join-item !border-l-0"
-                onClick={createNewSketch}
-                disabled={!sketchName.trim() || creatingSketch}
-              >
-                {creatingSketch ? (
-                  <span className="loading loading-spinner loading-sm"></span>
-                ) : (
-                  'Create'
-                )}
-              </button>
-            </div>
+            <button 
+              className="btn btn-primary w-full"
+              onClick={handleCreateClick}
+            >
+              Create New Investigation
+            </button>
           </div>
 
           <div className="divider rounded-full">OR</div>
@@ -190,15 +218,27 @@ function Home() {
                       </div>
                     </div>
                     {room.active && (
-                      <button 
-                        className="btn btn-ghost btn-sm"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          joinRoom(room.id);
-                        }}
-                      >
-                        Join
-                      </button>
+                      <div className="flex gap-2">
+                        <button 
+                          className="btn btn-ghost btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            joinRoom(room.id);
+                          }}
+                        >
+                          Join
+                        </button>
+                        <button
+                          className="btn btn-ghost btn-sm"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setShowRecoveryInput(true);
+                            setSelectedRoom(room);  // Store the selected room
+                          }}
+                        >
+                          Recover
+                        </button>
+                      </div>
                     )}
                   </div>
                 ))}
@@ -238,6 +278,105 @@ function Home() {
           </div>
         </div>
       </div>
+
+      {showRecoveryInput && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Recover Session</h3>
+            {recoveryError && (
+              <div className="alert alert-error mb-4">
+                <span>{recoveryError}</span>
+              </div>
+            )}
+            <div className="form-control mb-6">
+              <input
+                type="text"
+                placeholder="Enter recovery key"
+                className="input input-bordered w-full"
+                value={recoveryKey}
+                onChange={(e) => setRecoveryKey(e.target.value)}
+              />
+            </div>
+            <div className="modal-action">
+              <button 
+                className="btn btn-ghost"
+                onClick={() => {
+                  setShowRecoveryInput(false);
+                  setRecoveryKey('');
+                  setRecoveryError(null);
+                  setSelectedRoom(null);  // Clear selected room
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={() => {
+                  if (selectedRoom) {
+                    handleRecovery(selectedRoom.id);
+                  }
+                }}
+                disabled={!recoveryKey.trim() || !selectedRoom}
+              >
+                Recover
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showCreateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Create New Investigation</h3>
+            <div className="form-control gap-4">
+              <div>
+                <label className="label">
+                  <span className="label-text">Investigation Name</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter investigation name"
+                  className="input input-bordered w-full"
+                  value={sketchName}
+                  onChange={(e) => setSketchName(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="label">
+                  <span className="label-text">Your Name</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter your name"
+                  className="input input-bordered w-full"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+            </div>
+            <div className="modal-action">
+              <button 
+                className="btn btn-ghost"
+                onClick={() => setShowCreateModal(false)}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={createNewSketch}
+                disabled={!sketchName.trim() || !username.trim() || creatingSketch}
+              >
+                {creatingSketch ? (
+                  <span className="loading loading-spinner loading-sm"></span>
+                ) : (
+                  'Create'
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

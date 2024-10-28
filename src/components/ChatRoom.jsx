@@ -98,7 +98,7 @@ function ChatRoom() {
       api.cleanup();
 
       // Update the room joined handler
-      api.onRoomJoined(({ messages: roomMessages, activeUsers: roomUsers, userId: newUserId, roomName }) => {
+      api.onRoomJoined(({ messages: roomMessages, activeUsers: roomUsers, userId: newUserId, roomName, recoveryKey: newRecoveryKey }) => {
         console.log('Room joined, setting initial messages:', roomMessages);
         setMessages(roomMessages || []); // Add fallback for empty messages
         setActiveUsers(roomUsers || []); // Add fallback for empty users
@@ -108,6 +108,13 @@ function ChatRoom() {
           localStorage.setItem(`userId_${roomId}`, newUserId);
         }
         if (roomName) setRoomName(roomName);
+        
+        // Always show recovery key modal if we have a key
+        if (newRecoveryKey) {
+          console.log('Setting recovery key:', newRecoveryKey);
+          setRecoveryKey(newRecoveryKey);
+          setShowRecoveryKeyModal(true);
+        }
       });
 
       return socket;
@@ -228,13 +235,41 @@ function ChatRoom() {
 
   const joinChat = async (e) => {
     e.preventDefault();
-    if (!username.trim() || !secretKey.trim()) return;
-
+    console.log('Joining chat with state:', location.state);
+    
     try {
-      setError(null); // Clear any existing errors
-      // The issue is here - we need to await the response and set isJoined
-      await api.joinRoom(roomId, username, secretKey);
-      setIsJoined(true); // Add this line to trigger the UI transition
+      setError(null);
+      
+      // If recovering a session, use the recovered data
+      if (location.state?.isRecovery) {
+        console.log('Recovering session with:', location.state);
+        setUserId(location.state.userId);
+        setUsername(location.state.username);
+        setIsRoomOwner(location.state.isOwner);
+        await api.joinRoom(
+          roomId,
+          location.state.username,
+          secretKey,
+          location.state.userId,
+          location.state.isOwner
+        );
+      } else if (location.state?.isNewRoom) {
+        console.log('Joining as owner with:', location.state);
+        setIsRoomOwner(true);
+        await api.joinRoom(
+          roomId,
+          location.state.username,
+          secretKey,
+          location.state.userId,
+          true
+        );
+      } else {
+        console.log('Regular join with username:', username);
+        await api.joinRoom(roomId, username, secretKey);
+      }
+      
+      setIsJoined(true);
+      
     } catch (err) {
       setError(err.message || 'Failed to join room');
       console.error(err);
@@ -388,6 +423,60 @@ function ChatRoom() {
     fetchInitialActiveUsers();
   }, [roomId]);
 
+  const [showRecoveryKeyModal, setShowRecoveryKeyModal] = useState(false);
+  const [recoveryKey, setRecoveryKey] = useState('');
+  const [showRecoveryKey, setShowRecoveryKey] = useState(false);
+
+  useEffect(() => {
+    const setupSocketListeners = () => {
+      const socket = api.initSocket();
+      api.cleanup();
+
+      // Add debug logging for room_joined event
+      api.onRoomJoined((data) => {
+        console.log('Room joined event received:', data);
+        
+        setMessages(data.messages || []);
+        setActiveUsers(data.activeUsers || []);
+        setIsJoined(true);
+        
+        if (data.userId) {
+          console.log('Setting userId:', data.userId);
+          setUserId(data.userId);
+          localStorage.setItem(`userId_${roomId}`, data.userId);
+        }
+        
+        if (data.roomName) {
+          console.log('Setting room name:', data.roomName);
+          setRoomName(data.roomName);
+        }
+        
+        // Debug recovery key handling
+        console.log('Recovery key in room_joined:', data.recoveryKey);
+        if (data.recoveryKey) {
+          console.log('Attempting to show recovery key modal');
+          setRecoveryKey(data.recoveryKey);
+          setShowRecoveryKeyModal(true);
+        }
+      });
+
+      return socket;
+    };
+
+    const socket = setupSocketListeners();
+    return () => {
+      socket.disconnect();
+    };
+  }, [roomId]);
+
+  // Add debug logging for modal state
+  useEffect(() => {
+    console.log('Recovery key modal state:', {
+      showModal: showRecoveryKeyModal,
+      recoveryKey: recoveryKey
+    });
+  }, [showRecoveryKeyModal, recoveryKey]);
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -428,53 +517,39 @@ function ChatRoom() {
             </div>
 
             <form onSubmit={joinChat} className="space-y-4">
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Your Name</span>
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter your name"
-                  className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                />
-              </div>
+              {/* Only show username input if not recovering and not the owner */}
+              {!location.state?.isRecovery && !location.state?.isNewRoom && (
+                <div className="form-control">
+                  <label className="label">
+                    <span className="label-text">Your Name</span>
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="Enter your name"
+                    className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                  />
+                </div>
+              )}
 
               <div className="form-control">
                 <label className="label">
                   <span className="label-text">Secret Key</span>
                 </label>
-                <div className="relative">
-                  <input
-                    type={showSecretKey ? "text" : "password"}
-                    placeholder="Enter secret key"
-                    className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300 pr-10"
-                    value={secretKey}
-                    onChange={(e) => setSecretKey(e.target.value)}
-                    readOnly={isRoomOwner}
-                  />
-                  {isRoomOwner && (
-                    <button
-                      type="button"
-                      onClick={() => setShowSecretKey(!showSecretKey)}
-                      className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
-                    >
-                      {showSecretKey ? <FaEyeSlash className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
-                    </button>
-                  )}
-                </div>
-                {isRoomOwner && (
-                  <label className="label">
-                    <span className="label-text-alt text-warning">Make sure to save this key - you'll need it to rejoin the room!</span>
-                  </label>
-                )}
+                <input
+                  type={showSecretKey ? "text" : "password"}
+                  placeholder="Enter secret key"
+                  className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300"
+                  value={secretKey}
+                  onChange={(e) => setSecretKey(e.target.value)}
+                />
               </div>
 
               <div className="card-actions justify-end mt-6">
                 <button 
                   className="btn btn-primary rounded-xl hover:scale-105 transition-all duration-300"
-                  disabled={!username.trim() || !secretKey.trim()}
+                  disabled={(!username.trim() && !location.state?.isRecovery && !location.state?.isNewRoom) || !secretKey.trim()}
                 >
                   Join
                 </button>
@@ -718,6 +793,46 @@ function ChatRoom() {
                 onClick={() => setShowSecretKeyModal(false)}
               >
                 Close
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Update modal condition and add debug info */}
+      {showRecoveryKeyModal && recoveryKey && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Your Recovery Key</h3>
+            <p className="text-base-content/70 mb-4">
+              Please save this recovery key. You'll need it to recover your session if you get disconnected:
+            </p>
+            <div className="form-control">
+              <div className="relative">
+                <input
+                  type={showRecoveryKey ? "text" : "password"}
+                  className="input input-bordered w-full pr-10"
+                  value={recoveryKey}
+                  readOnly
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowRecoveryKey(!showRecoveryKey)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
+                >
+                  {showRecoveryKey ? <FaEyeSlash className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
+                </button>
+              </div>
+            </div>
+            <div className="modal-action mt-6">
+              <button 
+                className="btn btn-primary rounded-xl"
+                onClick={() => {
+                  console.log('Closing recovery key modal');
+                  setShowRecoveryKeyModal(false);
+                }}
+              >
+                I've Saved It
               </button>
             </div>
           </div>
