@@ -130,6 +130,7 @@ class EvidenceProcessor:
         7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
         8. For file hashes, use md5_hash and sha256_hash fields accordingly
         9. For file paths, use the file_path field and include the computer_name if available
+        10. If a file contains just a list of domains, ips, hashes, etc. do not add wording like "DNS request to suspicious domain" or "Suspicious outbound connection detected to" unless that is mentioned in the message.
 
         File Type: {file_type}
         Investigation: {room_name}

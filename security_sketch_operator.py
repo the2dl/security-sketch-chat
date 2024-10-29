@@ -392,7 +392,7 @@ class SecuritySketchOperator:
         """Validate the provided API key"""
         return provided_key == self.api_key
 
-    def run(self, interval_minutes=5):
+    def run(self, interval_minutes=1):
         """Main operation loop"""
         if not self.validate_api_key(self.api_key):
             logging.error("Invalid API key. Exiting...")

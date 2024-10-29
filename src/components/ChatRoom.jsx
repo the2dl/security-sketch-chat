@@ -604,7 +604,7 @@ function ChatRoom() {
     }
   }, [roomId, isJoined]);
 
-  // Update the handleFileUpload function to properly format the response
+  // Update the handleFileUpload function to properly format the file data
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -627,23 +627,99 @@ function ChatRoom() {
         setUploadProgress(progress);
       });
 
-      // Add the new file to the list with proper date formatting
-      setUploadedFiles(prev => [...prev, {
+      // Add the new file to the list with proper formatting
+      const newFile = {
         id: response.fileId,
-        name: file.name,
-        size: file.size,
-        created_at: new Date().toISOString(), // Use current time as fallback
+        original_filename: file.name,
+        file_size: file.size,
+        created_at: new Date().toISOString(),
         processing_error: response.processing_error,
         processed: response.processed,
         processed_at: response.processed_at
-      }]);
+      };
 
+      setUploadedFiles(prev => [...prev, newFile]);
       setUploadProgress(0);
     } catch (error) {
       console.error('Upload failed:', error);
       setError('Failed to upload file');
       setUploadProgress(0);
     }
+  };
+
+  // Add this new function near your other handlers
+  const handleFileDownload = async (fileId, filename) => {
+    try {
+      const response = await api.downloadFile(fileId);
+      
+      // Create a blob from the response data
+      const blob = new Blob([response.data]);
+      
+      // Create a temporary URL for the blob
+      const url = window.URL.createObjectURL(blob);
+      
+      // Create a temporary anchor element
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      
+      // Append to document, click, and cleanup
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error('Download failed:', error);
+      setError('Failed to download file');
+    }
+  };
+
+  // Add these new state declarations near your other useState calls
+  const [currentPage, setCurrentPage] = useState(1);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [sortBy, setSortBy] = useState('date'); // 'date' or 'name'
+  const [sortOrder, setSortOrder] = useState('desc'); // 'asc' or 'desc'
+  const FILES_PER_PAGE = 10;
+  const MAX_FILES_BEFORE_SCROLL = 5; // Show this many files before adding scroll
+
+  // Add this helper function for sorting files
+  const sortFiles = (files) => {
+    return [...files].sort((a, b) => {
+      if (sortBy === 'date') {
+        const dateA = new Date(a.created_at);
+        const dateB = new Date(b.created_at);
+        return sortOrder === 'desc' ? dateB - dateA : dateA - dateB;
+      } else {
+        const nameA = a.original_filename.toLowerCase();
+        const nameB = b.original_filename.toLowerCase();
+        return sortOrder === 'desc' ? 
+          nameB.localeCompare(nameA) : 
+          nameA.localeCompare(nameB);
+      }
+    });
+  };
+
+  // Add this helper function to filter and paginate files
+  const getDisplayedFiles = () => {
+    const filteredFiles = uploadedFiles.filter(file =>
+      file.original_filename.toLowerCase().includes(searchTerm.toLowerCase())
+    );
+    const sortedFiles = sortFiles(filteredFiles);
+    const totalPages = Math.ceil(sortedFiles.length / FILES_PER_PAGE);
+    
+    // Adjust current page if it exceeds the total pages
+    if (currentPage > totalPages) {
+      setCurrentPage(1);
+    }
+    
+    const start = (currentPage - 1) * FILES_PER_PAGE;
+    const paginatedFiles = sortedFiles.slice(start, start + FILES_PER_PAGE);
+    
+    return {
+      files: paginatedFiles,
+      totalPages,
+      totalFiles: filteredFiles.length
+    };
   };
 
   if (!isJoined) {
@@ -785,28 +861,112 @@ function ChatRoom() {
                 </div>
               )}
 
+              {/* Add separator only when files exist */}
               {uploadedFiles.length > 0 && (
-                <div className="space-y-2 mt-4">
-                  <div className="text-xs text-base-content/70 uppercase tracking-wide mb-2">
-                    Uploaded Files
-                  </div>
-                  {uploadedFiles.map((file) => (
-                    <div 
-                      key={file.id}
-                      className="flex flex-col gap-1 p-2 bg-base-300/50 rounded-lg text-sm"
-                    >
-                      <span className="truncate font-medium">{file.original_filename}</span>
-                      <div className="flex items-center justify-between text-xs text-base-content/70">
-                        <span>{formatFileSize(file.file_size)}</span>
-                        <span>{new Date(file.created_at).toLocaleString()}</span>
-                      </div>
-                      {file.processing_error && (
-                        <span className="text-xs text-error mt-1">
-                          {file.processing_error}
-                        </span>
-                      )}
+                <div className="border-t border-base-300 my-6"></div>
+              )}
+
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="text-xs text-base-content/70 uppercase tracking-wide">
+                      Uploaded Files ({uploadedFiles.length})
                     </div>
-                  ))}
+                    <div className="flex items-center gap-2">
+                      <select 
+                        className="select select-sm select-ghost"
+                        value={sortBy}
+                        onChange={(e) => setSortBy(e.target.value)}
+                      >
+                        <option value="date">Date</option>
+                        <option value="name">Name</option>
+                      </select>
+                      <button
+                        onClick={() => setSortOrder(order => order === 'asc' ? 'desc' : 'asc')}
+                        className="btn btn-ghost btn-sm btn-square"
+                      >
+                        {sortOrder === 'asc' ? '↑' : '↓'}
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="relative">
+                    <input
+                      type="text"
+                      placeholder="Search files..."
+                      className="input input-sm input-bordered w-full rounded-xl mb-2"
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                    />
+                    {searchTerm && (
+                      <button
+                        onClick={() => setSearchTerm('')}
+                        className="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content"
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+
+                  <div className={`
+                    ${uploadedFiles.length > MAX_FILES_BEFORE_SCROLL ? 'max-h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-base-100' : ''}
+                    pr-2
+                  `}>
+                    {getDisplayedFiles().files.map((file) => (
+                      <div 
+                        key={file.id}
+                        className="flex flex-col gap-1 p-2 bg-base-300/50 rounded-lg text-sm hover:bg-base-300 transition-colors duration-200 mb-2"
+                      >
+                        <button
+                          onClick={() => handleFileDownload(file.id, file.original_filename)}
+                          className="flex flex-col gap-1 w-full text-left"
+                        >
+                          <span className="truncate font-medium hover:text-primary transition-colors">
+                            {file.original_filename}
+                          </span>
+                          <div className="flex items-center justify-between text-xs text-base-content/70">
+                            <span>{formatFileSize(file.file_size)}</span>
+                            <span>{new Date(file.created_at).toLocaleString()}</span>
+                          </div>
+                          {file.processing_error && (
+                            <span className="text-xs text-error mt-1">
+                              {file.processing_error}
+                            </span>
+                          )}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Pagination */}
+                  {getDisplayedFiles().totalPages > 1 && (
+                    <div className="flex justify-center items-center gap-2 mt-4">
+                      <button
+                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                        disabled={currentPage === 1}
+                        className="btn btn-ghost btn-xs px-2"
+                      >
+                        ←
+                      </button>
+                      <span className="text-xs">
+                        Page {currentPage} of {getDisplayedFiles().totalPages}
+                      </span>
+                      <button
+                        onClick={() => setCurrentPage(p => Math.min(getDisplayedFiles().totalPages, p + 1))}
+                        disabled={currentPage === getDisplayedFiles().totalPages}
+                        className="btn btn-ghost btn-xs px-2"
+                      >
+                        →
+                      </button>
+                    </div>
+                  )}
+
+                  {/* No results message */}
+                  {searchTerm && getDisplayedFiles().totalFiles === 0 && (
+                    <div className="text-center text-sm text-base-content/50 py-4">
+                      No files match your search
+                    </div>
+                  )}
                 </div>
               )}
             </div>

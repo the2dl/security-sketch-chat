@@ -317,4 +317,29 @@ export const api = {
       throw error;
     }
   },
+
+  // Update the downloadFile method
+  downloadFile: async (fileId) => {
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/download/${fileId}`,
+        {
+          headers: {
+            'x-api-key': API_KEY
+          }
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to download file');
+      }
+
+      // Get the blob from the response
+      const blob = await response.blob();
+      return blob;
+    } catch (error) {
+      console.error('Error downloading file:', error);
+      throw error;
+    }
+  },
 };
