@@ -7,6 +7,7 @@
 mkdir -p /app/logs
 FLASK_LOG="/app/logs/flask.log"
 OPERATOR_LOG="/app/logs/operator.log"
+EVIDENCE_LOG="/app/logs/evidence.log"
 
 # Function to start the Flask API
 start_flask_api() {
@@ -26,16 +27,25 @@ start_security_operator() {
     echo "Security Sketch Operator started with PID: $OPERATOR_PID"
 }
 
+# Function to start the Evidence Processor
+start_evidence_processor() {
+    echo "Starting Evidence Processor..."
+    cd /app
+    python flask_api/evidence_processor.py > "$EVIDENCE_LOG" 2>&1 &
+    EVIDENCE_PID=$!
+    echo "Evidence Processor started with PID: $EVIDENCE_PID"
+}
+
 # Function to tail logs
 tail_logs() {
-    tail -f "$FLASK_LOG" "$OPERATOR_LOG" &
+    tail -f "$FLASK_LOG" "$OPERATOR_LOG" "$EVIDENCE_LOG" &
     TAIL_PID=$!
 }
 
 # Function to handle shutdown
 cleanup() {
     echo "Shutting down services..."
-    kill $FLASK_PID $OPERATOR_PID $TAIL_PID 2>/dev/null
+    kill $FLASK_PID $OPERATOR_PID $EVIDENCE_PID $TAIL_PID 2>/dev/null
     exit 0
 }
 
@@ -45,9 +55,10 @@ trap cleanup SIGTERM SIGINT
 # Start services
 start_flask_api
 start_security_operator
+start_evidence_processor
 
 # Start tailing logs
 tail_logs
 
 # Wait for all processes
-wait $FLASK_PID $OPERATOR_PID
+wait $FLASK_PID $OPERATOR_PID $EVIDENCE_PID

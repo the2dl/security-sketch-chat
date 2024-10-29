@@ -98,20 +98,37 @@ function ChatRoom() {
       api.cleanup();
 
       // Update the room joined handler
-      api.onRoomJoined(({ messages: roomMessages, activeUsers: roomUsers, userId: newUserId, roomName, recoveryKey: newRecoveryKey }) => {
-        console.log('Room joined, setting initial messages:', roomMessages);
-        setMessages(roomMessages || []); // Add fallback for empty messages
-        setActiveUsers(roomUsers || []); // Add fallback for empty users
-        setIsJoined(true); // Make sure this is explicitly set
+      api.onRoomJoined(({ 
+        messages: roomMessages, 
+        activeUsers: roomUsers, 
+        userId: newUserId, 
+        roomName: newRoomName, 
+        username: newUsername,
+        recoveryKey: newRecoveryKey 
+      }) => {
+        console.log('Room joined, setting initial state:', { 
+          roomMessages, 
+          roomUsers, 
+          newUserId, 
+          newRoomName, 
+          newUsername,
+          newRecoveryKey 
+        });
+        setMessages(roomMessages || []);
+        setActiveUsers(roomUsers || []);
+        setIsJoined(true);
+        
         if (newUserId) {
           setUserId(newUserId);
           localStorage.setItem(`userId_${roomId}`, newUserId);
         }
-        if (roomName) setRoomName(roomName);
         
-        // Always show recovery key modal if we have a key
+        if (newRoomName) setRoomName(newRoomName);
+        
+        // Ensure username is set from server response if available
+        if (newUsername) setUsername(newUsername);
+        
         if (newRecoveryKey) {
-          console.log('Setting recovery key:', newRecoveryKey);
           setRecoveryKey(newRecoveryKey);
           setShowRecoveryKeyModal(true);
         }
@@ -144,12 +161,26 @@ function ChatRoom() {
           return [...prevUsers, user];
         });
       }
+      // Add system message for user join
+      setMessages(prev => [...prev, {
+        content: `${user.username} joined the chat`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true
+      }]);
     });
 
     api.onUserLeft(({ userId, username }) => {
       setActiveUsers(prevUsers => 
         prevUsers.filter(u => u.username !== username)
       );
+      // Add system message for user leave
+      setMessages(prev => [...prev, {
+        content: `${username} left the chat`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true
+      }]);
     });
 
     // Update the message handler
@@ -255,6 +286,7 @@ function ChatRoom() {
         );
       } else if (location.state?.isNewRoom) {
         console.log('Joining as owner with:', location.state);
+        setUsername(location.state.username);
         setIsRoomOwner(true);
         await api.joinRoom(
           roomId,
@@ -265,6 +297,9 @@ function ChatRoom() {
         );
       } else {
         console.log('Regular join with username:', username);
+        if (!username.trim()) {
+          throw new Error('Username is required');
+        }
         await api.joinRoom(roomId, username, secretKey);
       }
       
@@ -280,15 +315,20 @@ function ChatRoom() {
     e.preventDefault();
     const trimmedMessage = message.trim();
     if (!trimmedMessage) return;
+    if (!username) {
+      console.error('Username is missing');
+      setError('Username is missing. Please try rejoining the chat.');
+      return;
+    }
 
     try {
       console.log('Sending message:', { roomId, username, content: trimmedMessage });
       
-      // Create the message data object
+      // Create the message data object with ISO string timestamp
       const messageData = {
         content: trimmedMessage,
-        username,
-        timestamp: new Date(),
+        username: username,
+        timestamp: new Date().toISOString(),
         roomId
       };
 
@@ -304,7 +344,7 @@ function ChatRoom() {
       // Send to server
       await api.sendMessage({
         roomId,
-        username,
+        username: username,
         content: trimmedMessage
       });
       
@@ -533,6 +573,79 @@ function ChatRoom() {
     );
   };
 
+  // Add these new state declarations near your other useState calls
+  const [uploadProgress, setUploadProgress] = useState(0);
+  const [uploadedFiles, setUploadedFiles] = useState([]);
+
+  // Add these new helper functions
+  const formatFileSize = (bytes) => {
+    if (bytes === 0) return '0 Bytes';
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+  };
+
+  // Add this new effect to fetch uploaded files when component mounts or when room is joined
+  useEffect(() => {
+    const fetchUploadedFiles = async () => {
+      try {
+        if (roomId) {
+          const files = await api.getUploadedFiles(roomId);
+          setUploadedFiles(files);
+        }
+      } catch (error) {
+        console.error('Error fetching uploaded files:', error);
+      }
+    };
+
+    if (isJoined) {
+      fetchUploadedFiles();
+    }
+  }, [roomId, isJoined]);
+
+  // Update the handleFileUpload function to properly format the response
+  const handleFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Validate file type
+    const validTypes = ['.csv', '.tsv', '.txt'];
+    const fileExtension = file.name.substring(file.name.lastIndexOf('.')).toLowerCase();
+    if (!validTypes.includes(fileExtension)) {
+      setError('Invalid file type. Please upload CSV, TSV, or TXT files only.');
+      return;
+    }
+
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('roomId', roomId);
+      formData.append('sketchId', sketchId);
+
+      const response = await api.uploadFile(formData, (progress) => {
+        setUploadProgress(progress);
+      });
+
+      // Add the new file to the list with proper date formatting
+      setUploadedFiles(prev => [...prev, {
+        id: response.fileId,
+        name: file.name,
+        size: file.size,
+        created_at: new Date().toISOString(), // Use current time as fallback
+        processing_error: response.processing_error,
+        processed: response.processed,
+        processed_at: response.processed_at
+      }]);
+
+      setUploadProgress(0);
+    } catch (error) {
+      console.error('Upload failed:', error);
+      setError('Failed to upload file');
+      setUploadProgress(0);
+    }
+  };
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -629,13 +742,74 @@ function ChatRoom() {
           <div className="flex flex-wrap gap-2">
             {activeUsers.map(user => (
               <div 
-                key={user.username} // Changed from user.id to user.username
+                key={user.username}
                 className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
               >
                 <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
                 {user.username}
               </div>
             ))}
+          </div>
+
+          {/* File Upload Section */}
+          <div className="border-t border-base-300 pt-6">
+            <div className="flex items-center gap-2 mb-3">
+              <div className="w-2 h-2 bg-info rounded-full"></div>
+              <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
+                Evidence Files
+              </h3>
+            </div>
+            
+            <div className="space-y-4">
+              <label className="flex flex-col gap-2">
+                <div className="btn btn-sm btn-primary rounded-xl w-full normal-case">
+                  <input
+                    type="file"
+                    accept=".csv,.tsv,.txt"
+                    onChange={handleFileUpload}
+                    className="hidden"
+                  />
+                  Upload File
+                </div>
+                <span className="text-xs text-base-content/70 text-center">
+                  Supports CSV, TSV, and TXT files
+                </span>
+              </label>
+
+              {uploadProgress > 0 && uploadProgress < 100 && (
+                <div className="w-full bg-base-300 rounded-full h-1.5">
+                  <div 
+                    className="bg-primary h-1.5 rounded-full transition-all duration-300"
+                    style={{ width: `${uploadProgress}%` }}
+                  ></div>
+                </div>
+              )}
+
+              {uploadedFiles.length > 0 && (
+                <div className="space-y-2 mt-4">
+                  <div className="text-xs text-base-content/70 uppercase tracking-wide mb-2">
+                    Uploaded Files
+                  </div>
+                  {uploadedFiles.map((file) => (
+                    <div 
+                      key={file.id}
+                      className="flex flex-col gap-1 p-2 bg-base-300/50 rounded-lg text-sm"
+                    >
+                      <span className="truncate font-medium">{file.original_filename}</span>
+                      <div className="flex items-center justify-between text-xs text-base-content/70">
+                        <span>{formatFileSize(file.file_size)}</span>
+                        <span>{new Date(file.created_at).toLocaleString()}</span>
+                      </div>
+                      {file.processing_error && (
+                        <span className="text-xs text-error mt-1">
+                          {file.processing_error}
+                        </span>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -688,25 +862,38 @@ function ChatRoom() {
           <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0">
             {messages.map((msg, index) => (
               <div
-                key={msg.id || `temp-${index}`}  // Fallback to index for optimistic updates
-                className={`flex flex-col ${msg.username === username ? 'items-end' : 'items-start'}`}
+                key={msg.id || `temp-${index}`}
+                className={`flex flex-col ${
+                  msg.isSystem 
+                    ? 'items-center' 
+                    : msg.username === username 
+                      ? 'items-end' 
+                      : 'items-start'
+                }`}
               >
-                {msg.username !== username && (
+                {msg.username !== username && !msg.isSystem && (
                   <div className="opacity-70 text-xs flex items-center gap-2 mb-1 px-1">
                     <span className="font-medium">{msg.username}</span>
                     <span className="text-base-content/50">
-                      {new Date(msg.timestamp).toLocaleTimeString()}
+                      {msg.timestamp && !isNaN(new Date(msg.timestamp).getTime())
+                        ? new Date(msg.timestamp).toLocaleTimeString()
+                        : new Date().toLocaleTimeString()
+                      }
                     </span>
                   </div>
                 )}
-                <div className={`rounded-lg break-words max-w-[75%] px-4 py-2 ${
-                  msg.username === username 
-                    ? theme === 'black'
-                      ? 'bg-indigo-600 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]' 
-                      : 'bg-blue-600 text-white shadow-md'
-                    : theme === 'black'
-                      ? 'bg-zinc-700 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]'
-                      : 'bg-gray-200 text-gray-800 shadow-md'
+                <div className={`rounded-lg break-words ${
+                  msg.isSystem 
+                    ? 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
+                    : `max-w-[75%] px-4 py-2 ${
+                      msg.username === username 
+                        ? theme === 'black'
+                          ? 'bg-indigo-600 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]' 
+                          : 'bg-blue-600 text-white shadow-md'
+                        : theme === 'black'
+                          ? 'bg-zinc-700 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]'
+                          : 'bg-gray-200 text-gray-800 shadow-md'
+                    }`
                 }`}>
                   {formatMessageContent(msg.content, username)}
                 </div>

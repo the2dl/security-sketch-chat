@@ -5,6 +5,9 @@ const cors = require('cors');
 const { Pool } = require('pg');
 const { v4: uuidv4 } = require('uuid');
 const crypto = require('crypto');
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs').promises;
 
 const app = express();
 const server = http.createServer(app);
@@ -75,6 +78,38 @@ const pool = new Pool({
 });
 
 app.use(express.json());
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+  destination: async (req, file, cb) => {
+    const uploadDir = path.join(__dirname, 'uploads');
+    try {
+      await fs.mkdir(uploadDir, { recursive: true });
+      cb(null, uploadDir);
+    } catch (error) {
+      cb(error);
+    }
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, uniqueSuffix + path.extname(file.originalname));
+  }
+});
+
+const upload = multer({
+  storage,
+  fileFilter: (req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (ext === '.csv' || ext === '.tsv' || ext === '.txt') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV, TSV, and TXT files are allowed'));
+    }
+  },
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB limit
+  }
+});
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
@@ -672,6 +707,86 @@ app.post('/api/rooms/:roomId/recover', async (req, res) => {
   } catch (error) {
     console.error('Error recovering session:', error);
     res.status(500).json({ error: 'Failed to recover session' });
+  }
+});
+
+// Add new endpoints for file handling
+app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req, res) => {
+  try {
+    const { roomId, sketchId } = req.body;
+    const file = req.file;
+
+    // Save file metadata to database
+    const result = await pool.query(
+      `INSERT INTO uploaded_files (
+        room_id, 
+        sketch_id,
+        filename,
+        original_filename,
+        file_path,
+        file_size,
+        file_type
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+      [
+        roomId,
+        sketchId,
+        file.filename,
+        file.originalname,
+        file.path,
+        file.size,
+        path.extname(file.originalname).substring(1)
+      ]
+    );
+
+    res.json({
+      fileId: result.rows[0].id,
+      filename: file.originalname
+    });
+  } catch (error) {
+    console.error('Error uploading file:', error);
+    res.status(500).json({ error: 'Failed to upload file' });
+  }
+});
+
+app.get('/api/files/:roomId', validateApiKey, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, original_filename, file_size, file_type, created_at
+       FROM uploaded_files
+       WHERE room_id = $1
+       ORDER BY created_at DESC`,
+      [req.params.roomId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching files:', error);
+    res.status(500).json({ error: 'Failed to fetch files' });
+  }
+});
+
+// Add endpoint to download file
+app.get('/api/files/download/:fileId', validateApiKey, async (req, res) => {
+  try {
+    const { fileId } = req.params;
+    
+    // Get file info from database
+    const result = await pool.query(
+      `SELECT filename, file_path, original_filename 
+       FROM uploaded_files 
+       WHERE id = $1`,
+      [fileId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const file = result.rows[0];
+    res.download(file.file_path, file.original_filename);
+  } catch (error) {
+    console.error('Error downloading file:', error);
+    res.status(500).json({ error: 'Failed to download file' });
   }
 });
 

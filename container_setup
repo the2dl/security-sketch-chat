@@ -29,20 +29,23 @@ setup() {
     echo "Connecting PostgreSQL to timesketch network..."
     docker network connect timesketch-network security-sketch-db || true
 
-    # 5. Start the timesketch-api container
+    # 5. Start the timesketch-api container with both operators
     echo "Starting timesketch-api container..."
     docker run -d \
         --name timesketch-api \
         --network timesketch-network \
+        --add-host=host.docker.internal:host-gateway \
         --env-file .env \
         -p 5001:5001 \
         timesketch-cli
 
     echo -e "${GREEN}Setup complete!${NC}"
     
-    # Show container status
+    # Show container status and follow logs
     echo -e "\nContainer Status:"
     docker ps
+    echo -e "\nFollowing logs (Ctrl+C to exit)..."
+    docker logs -f timesketch-api
 }
 
 # Function to remove everything

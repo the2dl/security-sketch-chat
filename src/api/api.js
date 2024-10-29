@@ -282,4 +282,39 @@ export const api = {
 
     return response.json();
   },
+
+  uploadFile: async (formData, onProgress) => {
+    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/upload`, {
+      method: 'POST',
+      headers: {
+        'x-api-key': API_KEY
+      },
+      body: formData,
+      onUploadProgress: (progressEvent) => {
+        const percentCompleted = Math.round((progressEvent.loaded * 100) / progressEvent.total);
+        onProgress(percentCompleted);
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error('Failed to upload file');
+    }
+
+    return response.json();
+  },
+
+  getUploadedFiles: async (roomId) => {
+    try {
+      const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/${roomId}`);
+
+      if (!response.ok) {
+        throw new Error('Failed to fetch uploaded files');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error fetching uploaded files:', error);
+      throw error;
+    }
+  },
 };
