@@ -4,8 +4,12 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaEye, FaEyeSlash, FaExternalLinkAlt, FaCopy, FaFileUpload } from 'react-icons/fa';
+import { FaExternalLinkAlt, FaCopy, FaFileUpload } from 'react-icons/fa';
 import { HiOutlineLogout, HiUserAdd } from 'react-icons/hi';
+import ConfirmCloseModal from './modals/ConfirmCloseModal';
+import SecretKeyModal from './modals/SecretKeyModal';
+import RecoveryKeyModal from './modals/RecoveryKeyModal';
+import SecretInput from './SecretInput';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -29,9 +33,6 @@ function ChatRoom() {
   const [secretKey, setSecretKey] = useState(location.state?.secretKey || '');
 
   // Add this state near your other useState declarations
-  const [showSecretKey, setShowSecretKey] = useState(false);
-
-  // Near the top of your component where other state is defined
   const [isRoomOwner, setIsRoomOwner] = useState(false);
 
   const [roomName, setRoomName] = useState('Security Sketch');
@@ -106,14 +107,6 @@ function ChatRoom() {
         username: newUsername,
         recoveryKey: newRecoveryKey 
       }) => {
-        console.log('Room joined, setting initial state:', { 
-          roomMessages, 
-          roomUsers, 
-          newUserId, 
-          newRoomName, 
-          newUsername,
-          newRecoveryKey 
-        });
         setMessages(roomMessages || []);
         setActiveUsers(roomUsers || []);
         setIsJoined(true);
@@ -124,10 +117,9 @@ function ChatRoom() {
         }
         
         if (newRoomName) setRoomName(newRoomName);
-        
-        // Ensure username is set from server response if available
         if (newUsername) setUsername(newUsername);
         
+        // Simplified recovery key handling
         if (newRecoveryKey) {
           setRecoveryKey(newRecoveryKey);
           setShowRecoveryKeyModal(true);
@@ -466,113 +458,6 @@ function ChatRoom() {
 
   const [showRecoveryKeyModal, setShowRecoveryKeyModal] = useState(false);
   const [recoveryKey, setRecoveryKey] = useState('');
-  const [showRecoveryKey, setShowRecoveryKey] = useState(false);
-
-  useEffect(() => {
-    const setupSocketListeners = () => {
-      const socket = api.initSocket();
-      api.cleanup();
-
-      // Add debug logging for room_joined event
-      api.onRoomJoined((data) => {
-        console.log('Room joined event received:', data);
-        
-        setMessages(data.messages || []);
-        setActiveUsers(data.activeUsers || []);
-        setIsJoined(true);
-        
-        if (data.userId) {
-          console.log('Setting userId:', data.userId);
-          setUserId(data.userId);
-          localStorage.setItem(`userId_${roomId}`, data.userId);
-        }
-        
-        if (data.roomName) {
-          console.log('Setting room name:', data.roomName);
-          setRoomName(data.roomName);
-        }
-        
-        // Debug recovery key handling
-        console.log('Recovery key in room_joined:', data.recoveryKey);
-        if (data.recoveryKey) {
-          console.log('Attempting to show recovery key modal');
-          setRecoveryKey(data.recoveryKey);
-          setShowRecoveryKeyModal(true);
-        }
-      });
-
-      return socket;
-    };
-
-    const socket = setupSocketListeners();
-    return () => {
-      socket.disconnect();
-    };
-  }, [roomId]);
-
-  // Add debug logging for modal state
-  useEffect(() => {
-    console.log('Recovery key modal state:', {
-      showModal: showRecoveryKeyModal,
-      recoveryKey: recoveryKey
-    });
-  }, [showRecoveryKeyModal, recoveryKey]);
-
-  // Add new state for copy buttons
-  const [showSecretKeyCopy, setShowSecretKeyCopy] = useState(false);
-  const [showRecoveryKeyCopy, setShowRecoveryKeyCopy] = useState(false);
-
-  // Helper function for copying and showing toast
-  const copyToClipboard = async (text, type) => {
-    try {
-      await navigator.clipboard.writeText(text);
-      const toast = document.createElement('div');
-      toast.className = 'alert alert-success fixed bottom-4 right-4 w-auto z-50';
-      toast.innerHTML = `
-        <span>${type} copied to clipboard!</span>
-      `;
-      document.body.appendChild(toast);
-      setTimeout(() => {
-        toast.remove();
-      }, 3000);
-    } catch (err) {
-      console.error('Failed to copy:', err);
-    }
-  };
-
-  // Update the secret input fields to use a single icon that toggles
-  const SecretInput = ({ value, onChange, placeholder, readOnly }) => {
-    const [showSecret, setShowSecret] = useState(false);
-    
-    return (
-      <div className="relative">
-        <input
-          type={showSecret ? "text" : "password"}
-          className={`input input-bordered w-full pr-12 rounded-xl ${
-            !readOnly ? "focus:ring-2 focus:ring-primary" : ""
-          } transition-all duration-300`}
-          value={value}
-          onChange={onChange}
-          placeholder={placeholder}
-          readOnly={readOnly}
-        />
-        <button
-          type="button"
-          onClick={() => {
-            if (showSecret) {
-              copyToClipboard(value, 'Secret key');
-              setShowSecret(false);
-            } else {
-              setShowSecret(true);
-            }
-          }}
-          className="absolute right-3 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content transition-colors"
-        >
-          {showSecret ? <FaCopy className="w-5 h-5" /> : <FaEye className="w-5 h-5" />}
-        </button>
-      </div>
-    );
-  };
 
   // Add these new state declarations near your other useState calls
   const [uploadProgress, setUploadProgress] = useState(0);
@@ -1016,7 +901,7 @@ function ChatRoom() {
                 <>
                   <div className="tooltip tooltip-bottom" data-tip="Copy the secret key to share with others who need to join">
                     <button 
-                      onClick={() => copyToClipboard(secretKey, 'Secret key')}
+                      onClick={() => setShowSecretKeyModal(true)}
                       className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
                     >
                       <FaCopy className="w-3.5 h-3.5 mr-2" />
@@ -1170,87 +1055,24 @@ function ChatRoom() {
         </div>
       </div>
 
-      {/* Add the confirmation modal */}
-      {showConfirmModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
-            <h3 className="font-bold text-lg mb-4">Close Investigation?</h3>
-            <p className="text-base-content/70 mb-6">
-              Are you sure you want to close this investigation? This action cannot be undone.
-            </p>
-            {closeError && (
-              <div className="alert alert-error mb-4">
-                <span>{closeError}</span>
-              </div>
-            )}
-            <div className="modal-action flex gap-3">
-              <button 
-                className="btn btn-ghost rounded-xl"
-                onClick={() => setShowConfirmModal(false)}
-              >
-                Cancel
-              </button>
-              <button 
-                className="btn btn-ghost hover:bg-red-500/10 text-red-500 hover:text-red-600 rounded-xl"
-                onClick={confirmCloseRoom}
-              >
-                Close Investigation
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmCloseModal
+        isOpen={showConfirmModal}
+        onClose={() => setShowConfirmModal(false)}
+        onConfirm={confirmCloseRoom}
+        error={closeError}
+      />
 
-      {showSecretKeyModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
-            <h3 className="font-bold text-lg mb-4">Room Secret Key</h3>
-            <div className="form-control">
-              <SecretInput
-                value={secretKey}
-                readOnly={true}
-              />
-            </div>
-            <div className="modal-action mt-6">
-              <button 
-                className="btn btn-ghost rounded-xl"
-                onClick={() => setShowSecretKeyModal(false)}
-              >
-                Close
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <SecretKeyModal
+        isOpen={showSecretKeyModal}
+        onClose={() => setShowSecretKeyModal(false)}
+        secretKey={secretKey}
+      />
 
-      {/* Update modal condition and add debug info */}
-      {showRecoveryKeyModal && recoveryKey && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
-            <h3 className="font-bold text-lg mb-4">Your Recovery Key</h3>
-            <p className="text-base-content/70 mb-4">
-              Please save this recovery key. You'll need it to recover your session if you get disconnected:
-            </p>
-            <div className="form-control">
-              <SecretInput
-                value={recoveryKey}
-                readOnly={true}
-              />
-            </div>
-            <div className="modal-action mt-6">
-              <button 
-                className="btn btn-primary rounded-xl"
-                onClick={() => {
-                  console.log('Closing recovery key modal');
-                  setShowRecoveryKeyModal(false);
-                }}
-              >
-                I've Saved It
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <RecoveryKeyModal
+        isOpen={showRecoveryKeyModal && recoveryKey}
+        onClose={() => setShowRecoveryKeyModal(false)}
+        recoveryKey={recoveryKey}
+      />
     </div>
   );
 }
