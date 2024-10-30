@@ -820,8 +820,8 @@ function ChatRoom() {
                           <span className="truncate font-medium hover:text-primary transition-colors">
                             {file.original_filename}
                           </span>
-                          <div className="flex items-center justify-between text-xs text-base-content/70">
-                            <span>{formatFileSize(file.file_size)}</span>
+                          <div className="flex items-center justify-between text-xs text-base-content/70 space-x-2">
+                            <span className="min-w-[80px]">{formatFileSize(file.file_size)}</span>
                             <span>{new Date(file.created_at).toLocaleString()}</span>
                           </div>
                           {file.processing_error && (
