@@ -8,6 +8,7 @@ const crypto = require('crypto');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
+const { GoogleGenerativeAI } = require('@google/generative-ai');
 
 const app = express();
 const server = http.createServer(app);
@@ -108,6 +109,102 @@ const upload = multer({
   },
   limits: {
     fileSize: 50 * 1024 * 1024 // 50MB limit
+  }
+});
+
+// Initialize Gemini
+const genai = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
+const model = genai.getGenerativeModel({ model: 'gemini-1.5-pro-002' });
+
+// Add the bot chat endpoint
+app.post('/api/chat/bot', validateApiKey, async (req, res) => {
+  const { message, roomId, username } = req.body;
+
+  try {
+    const generationConfig = {
+      temperature: 0.1,
+      topP: 1,
+      topK: 1,
+      maxOutputTokens: 2048,
+    };
+
+    const safetySettings = [
+      {
+        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+        threshold: "BLOCK_NONE",
+      },
+      {
+        category: "HARM_CATEGORY_HATE_SPEECH",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE",
+      },
+      {
+        category: "HARM_CATEGORY_HARASSMENT",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE",
+      },
+      {
+        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+        threshold: "BLOCK_MEDIUM_AND_ABOVE",
+      },
+    ];
+
+    const userQuestion = message.replace(/@SecurityBot/i, '').trim();
+    
+    // Combine the system prompt and user question into a single context
+    const prompt = `You are SecurityBot, an AI assistant focused exclusively on information security, digital forensics, and IT security topics. 
+
+STRICT RULES:
+- Only respond to questions about information security, cybersecurity, digital forensics, incident response, malware analysis, network security, Windows/Linux security events and logs, and related IT security topics
+- For any questions outside these domains (like weather, general coding, personal advice, etc.), respond with: "I can only assist with information security and digital forensics related topics. Please ask me about security investigations, threat hunting, incident response, or similar security topics."
+- Keep responses focused on security best practices and factual information
+- Do not provide detailed exploit code or attack instructions
+- When discussing security tools or techniques, emphasize defensive and analytical uses
+- If unsure about a topic's security relevance, err on the side of not responding
+
+Current context: You are assisting in a security investigation chat room.
+
+User question: ${userQuestion}`;
+
+    const chat = [
+      { role: "user", parts: [{ text: prompt }] }
+    ];
+
+    const result = await model.generateContent({
+      contents: chat,
+      generationConfig,
+      safetySettings,
+    });
+
+    const response = result.response;
+    const timestamp = new Date().toISOString();
+    
+    // Create both messages with unique IDs
+    const userMessage = {
+      content: message,
+      username: username,
+      timestamp: timestamp,
+      id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    const botMessage = {
+      content: response.text().trim(),
+      username: 'SecurityBot',
+      timestamp: timestamp,
+      isBot: true,
+      id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    // Emit both messages through socket
+    io.in(roomId).emit('new_message', userMessage);
+    io.in(roomId).emit('bot_message', botMessage);
+
+    res.json({ success: true });
+
+  } catch (error) {
+    console.error('Bot chat error:', error);
+    res.status(500).json({ 
+      error: 'Failed to generate bot response',
+      details: error.message 
+    });
   }
 });
 
@@ -228,6 +325,18 @@ io.on('connection', (socket) => {
         userId: userId,
         username: username
       });
+
+      // Add system message for user joining
+      const joinMessage = {
+        content: `${username} joined the investigation`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        type: 'user-join'
+      };
+      
+      // Emit join message to all users in the room
+      socket.to(roomId).emit('new_message', joinMessage);
     } catch (error) {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });

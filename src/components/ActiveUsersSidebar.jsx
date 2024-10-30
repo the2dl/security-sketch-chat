@@ -1,5 +1,5 @@
 import { HiUserAdd } from 'react-icons/hi';
-import { FaFileUpload, FaTrash } from 'react-icons/fa';
+import { FaFileUpload, FaTrash, FaRobot } from 'react-icons/fa';
 import { useState } from 'react';
 import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
 
@@ -55,6 +55,13 @@ function ActiveUsersSidebar({
           </h3>
         </div>
         <div className="flex flex-wrap gap-2">
+          {/* Bot user - always shown first */}
+          <div className="badge badge-primary bg-purple-500/10 border-purple-500/20 text-purple-300 gap-2 p-3 rounded-lg">
+            <FaRobot className="w-3.5 h-3.5" />
+            SecurityBot
+          </div>
+          
+          {/* Existing user badges */}
           {activeUsers.map(user => (
             <div 
               key={user.username}
@@ -156,12 +163,12 @@ function ActiveUsersSidebar({
                     key={file.id}
                     className="flex flex-col gap-1 p-2 bg-base-300/50 rounded-lg text-sm hover:bg-base-300 transition-colors duration-200 mb-2"
                   >
-                    <div className="flex justify-between items-start">
+                    <div className="flex justify-between items-start gap-2">
                       <button
                         onClick={() => handleFileDownload(file.id, file.original_filename)}
-                        className="flex flex-col gap-1 flex-1 text-left"
+                        className="flex flex-col gap-1 flex-1 text-left min-w-0"
                       >
-                        <span className="truncate font-medium hover:text-primary transition-colors">
+                        <span className="truncate font-medium hover:text-primary transition-colors max-w-[160px]">
                           {file.original_filename}
                         </span>
                         <div className="flex items-center justify-between text-xs text-base-content/70 space-x-2">

@@ -1,4 +1,5 @@
 import io from 'socket.io-client';
+import axios from 'axios';
 
 let socket = null;
 
@@ -20,11 +21,26 @@ const fetchWithAuth = async (url, options = {}) => {
 
 // Initialize socket connection
 const initSocket = () => {
-  socket = io('http://localhost:3000', {
-    withCredentials: true,
-    auth: { apiKey: API_KEY }, // Add API key to socket connection
-    transports: ['websocket']
-  });
+  if (!socket) {
+    socket = io('http://localhost:3000', {
+      withCredentials: true,
+      auth: { apiKey: API_KEY },
+      transports: ['websocket']
+    });
+
+    // Add debug logging for socket events
+    socket.on('connect', () => {
+      console.log('Socket connected');
+    });
+
+    socket.on('bot_message', (message) => {
+      console.log('Socket received bot message:', message);
+    });
+
+    socket.on('error', (error) => {
+      console.error('Socket error:', error);
+    });
+  }
   return socket;
 };
 
@@ -145,6 +161,7 @@ const cleanup = () => {
   socket.off('user_joined');
   socket.off('user_left');
   socket.off('update_active_users');
+  socket.off('bot_message');
   socket.off('error');
 };
 
@@ -359,6 +376,28 @@ export const api = {
       return await response.json();
     } catch (error) {
       console.error('Error deleting file:', error);
+      throw error;
+    }
+  },
+
+  // Update the sendMessageToBot method
+  sendMessageToBot: async (message, roomId, username) => {
+    try {
+      console.log('Sending bot message:', { message, roomId, username });
+      const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/chat/bot`, {
+        method: 'POST',
+        body: JSON.stringify({ message, roomId, username })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to send message to bot');
+      }
+
+      const data = await response.json();
+      console.log('Bot response:', data);
+      return data;
+    } catch (error) {
+      console.error('Bot chat error:', error);
       throw error;
     }
   },

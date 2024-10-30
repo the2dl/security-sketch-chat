@@ -11,6 +11,8 @@ import SecretKeyModal from './modals/SecretKeyModal';
 import RecoveryKeyModal from './modals/RecoveryKeyModal';
 import SecretInput from './SecretInput';
 import ActiveUsersSidebar from './ActiveUsersSidebar';
+import BotMessage from './BotMessage';
+import { FaRobot } from 'react-icons/fa';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -184,6 +186,17 @@ function ChatRoom() {
         });
       });
 
+      // Update bot message handler
+      socket.on('bot_message', (botMessage) => {
+        console.log('Received bot message in ChatRoom:', botMessage);
+        setMessages(prevMessages => {
+          // First remove typing indicator
+          const messagesWithoutTyping = prevMessages.filter(m => !m.isTyping);
+          // Then add new bot message
+          return [...messagesWithoutTyping, botMessage];
+        });
+      });
+
       return socket;
     };
 
@@ -286,39 +299,40 @@ function ChatRoom() {
     e.preventDefault();
     const trimmedMessage = message.trim();
     if (!trimmedMessage) return;
-    if (!username) {
-      console.error('Username is missing');
-      setError('Username is missing. Please try rejoining the chat.');
-      return;
-    }
-
+    
+    // Clear the message immediately to improve UX
+    setMessage('');
+    
     try {
-      console.log('Sending message:', { roomId, username, content: trimmedMessage });
-      
-      const messageData = {
-        content: trimmedMessage,
-        username: username,
-        timestamp: new Date().toISOString(),
-        roomId
-      };
-
-      setMessages(prev => [...prev, messageData]);
-      
-      setMessage('');
-      if (textareaRef.current) {
-        textareaRef.current.style.height = 'auto';
+      if (trimmedMessage.toLowerCase().includes('@securitybot')) {
+        // Add typing indicator with unique ID
+        const typingMessage = {
+          content: 'SecurityBot is typing...',
+          username: 'SecurityBot',
+          isTyping: true,
+          timestamp: new Date().toISOString(),
+          id: `typing-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        };
+        setMessages(prev => [...prev, typingMessage]);
+        
+        // Send to bot and wait for response
+        await api.sendMessageToBot(trimmedMessage, roomId, username);
+        
+        // Remove typing indicator
+        setMessages(prev => prev.filter(m => !m.isTyping));
+      } else {
+        // Regular message handling
+        await api.sendMessage({
+          roomId,
+          username,
+          content: trimmedMessage,
+        });
       }
-
-      await api.sendMessage({
-        roomId,
-        username: username,
-        content: trimmedMessage
-      });
-      
     } catch (error) {
       console.error('Error sending message:', error);
       setError('Failed to send message');
-      setMessages(prev => prev.filter(msg => msg.content !== trimmedMessage));
+      // Remove typing indicator on error
+      setMessages(prev => prev.filter(m => !m.isTyping));
     }
   };
 
@@ -348,10 +362,12 @@ function ChatRoom() {
     
     if (wordBeforeCursor.startsWith('@')) {
       const filter = wordBeforeCursor.slice(1).toLowerCase();
-      console.log('Showing mentions with filter:', filter);
-      console.log('Active users:', activeUsers);
+      const showBot = 'securitybot'.includes(filter);
+      
       setMentionFilter(filter);
-      setShowMentions(true);
+      setShowMentions(showBot || activeUsers.some(user => 
+        user.username.toLowerCase().includes(filter)
+      ));
     } else {
       setShowMentions(false);
     }
@@ -789,58 +805,64 @@ function ChatRoom() {
           
           <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0">
             {messages.map((msg, index) => (
-              <div
-                key={msg.id || `temp-${index}`}
-                className={`flex flex-col ${
-                  msg.isSystem 
-                    ? 'items-center' 
-                    : msg.username === username 
-                      ? 'items-end' 
-                      : 'items-start'
-                }`}
-              >
-                {msg.username !== username && !msg.isSystem && (
-                  <div className="opacity-70 text-xs flex items-center gap-2 mb-1 px-1">
-                    <span className="font-medium">{msg.username}</span>
-                    <span className="text-base-content/50">
-                      {msg.timestamp && !isNaN(new Date(msg.timestamp).getTime())
-                        ? new Date(msg.timestamp).toLocaleTimeString()
-                        : new Date().toLocaleTimeString()
-                      }
-                    </span>
+              <div key={msg.id || `temp-${index}`}>
+                {msg.isBot ? (
+                  <BotMessage message={msg.content} timestamp={msg.timestamp} />
+                ) : (
+                  <div
+                    key={msg.id || `temp-${index}`}
+                    className={`flex flex-col ${
+                      msg.isSystem 
+                        ? 'items-center' 
+                        : msg.username === username 
+                          ? 'items-end' 
+                          : 'items-start'
+                    }`}
+                  >
+                    {msg.username !== username && !msg.isSystem && (
+                      <div className="opacity-70 text-xs flex items-center gap-2 mb-1 px-1">
+                        <span className="font-medium">{msg.username}</span>
+                        <span className="text-base-content/50">
+                          {msg.timestamp && !isNaN(new Date(msg.timestamp).getTime())
+                            ? new Date(msg.timestamp).toLocaleTimeString()
+                            : new Date().toLocaleTimeString()
+                          }
+                        </span>
+                      </div>
+                    )}
+                    <div className={`rounded-lg break-words ${
+                      msg.isSystem 
+                        ? msg.type === 'file-upload'
+                          ? 'text-xs bg-primary/10 text-primary px-4 py-2 flex items-center gap-2'
+                          : msg.type === 'user-join'
+                            ? 'text-xs bg-success/10 text-success px-4 py-2 flex items-center gap-2'
+                            : 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
+                        : `max-w-[75%] px-4 py-2 ${
+                          msg.username === username 
+                            ? theme === 'black'
+                              ? 'bg-indigo-600 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]' 
+                              : 'bg-blue-600 text-white shadow-md'
+                            : theme === 'black'
+                              ? 'bg-zinc-700 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]'
+                              : 'bg-gray-200 text-gray-800 shadow-md'
+                        }`
+                    }`}>
+                      {msg.type === 'file-upload' ? (
+                        <>
+                          <FaFileUpload className="w-3.5 h-3.5" />
+                          {msg.content}
+                        </>
+                      ) : msg.type === 'user-join' ? (
+                        <>
+                          <HiUserAdd className="w-3.5 h-3.5" />
+                          {msg.content}
+                        </>
+                      ) : (
+                        formatMessageContent(msg.content, username)
+                      )}
+                    </div>
                   </div>
                 )}
-                <div className={`rounded-lg break-words ${
-                  msg.isSystem 
-                    ? msg.type === 'file-upload'
-                      ? 'text-xs bg-primary/10 text-primary px-4 py-2 flex items-center gap-2'
-                      : msg.type === 'user-join'
-                        ? 'text-xs bg-success/10 text-success px-4 py-2 flex items-center gap-2'
-                        : 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
-                    : `max-w-[75%] px-4 py-2 ${
-                      msg.username === username 
-                        ? theme === 'black'
-                          ? 'bg-indigo-600 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]' 
-                          : 'bg-blue-600 text-white shadow-md'
-                        : theme === 'black'
-                          ? 'bg-zinc-700 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]'
-                          : 'bg-gray-200 text-gray-800 shadow-md'
-                    }`
-                }`}>
-                  {msg.type === 'file-upload' ? (
-                    <>
-                      <FaFileUpload className="w-3.5 h-3.5" />
-                      {msg.content}
-                    </>
-                  ) : msg.type === 'user-join' ? (
-                    <>
-                      <HiUserAdd className="w-3.5 h-3.5" />
-                      {msg.content}
-                    </>
-                  ) : (
-                    formatMessageContent(msg.content, username)
-                  )}
-                </div>
               </div>
             ))}
             <div ref={messagesEndRef} />
@@ -872,6 +894,16 @@ function ChatRoom() {
                   
                   {showMentions && (
                     <div className="fixed transform -translate-y-full left-auto mb-2 w-48 bg-base-200 rounded-lg shadow-xl border border-base-300 z-50">
+                      {'securitybot'.includes(mentionFilter.toLowerCase()) && (
+                        <button
+                          onClick={() => handleMentionClick('SecurityBot')}
+                          className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg flex items-center gap-2 text-purple-400"
+                        >
+                          <FaRobot className="w-3.5 h-3.5" />
+                          SecurityBot
+                        </button>
+                      )}
+                      
                       {activeUsers
                         .filter(user => 
                           user.username.toLowerCase().includes(mentionFilter) &&
