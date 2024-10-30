@@ -790,6 +790,51 @@ app.get('/api/files/download/:fileId', validateApiKey, async (req, res) => {
   }
 });
 
+// Add this new endpoint after your other file-related endpoints
+app.delete('/api/files/:fileId', validateApiKey, async (req, res) => {
+  const client = await pool.connect();
+  
+  try {
+    await client.query('BEGIN');
+    
+    // First get the file info
+    const fileResult = await client.query(
+      'SELECT filename, file_path FROM uploaded_files WHERE id = $1',
+      [req.params.fileId]
+    );
+
+    if (fileResult.rows.length === 0) {
+      return res.status(404).json({ error: 'File not found' });
+    }
+
+    const filePath = fileResult.rows[0].file_path;
+
+    // Delete the file from the filesystem
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      console.error('Error deleting file from filesystem:', error);
+      // Continue with database deletion even if file is missing
+    }
+
+    // Delete the database record
+    await client.query(
+      'DELETE FROM uploaded_files WHERE id = $1',
+      [req.params.fileId]
+    );
+
+    await client.query('COMMIT');
+    
+    res.json({ message: 'File deleted successfully' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error deleting file:', error);
+    res.status(500).json({ error: 'Failed to delete file' });
+  } finally {
+    client.release();
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);

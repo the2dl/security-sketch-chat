@@ -342,4 +342,24 @@ export const api = {
       throw error;
     }
   },
+
+  deleteFile: async (fileId) => {
+    try {
+      const response = await fetchWithAuth(
+        `${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/${fileId}`,
+        {
+          method: 'DELETE'
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error('Failed to delete file');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      throw error;
+    }
+  },
 };

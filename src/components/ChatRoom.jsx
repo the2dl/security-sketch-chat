@@ -10,6 +10,7 @@ import ConfirmCloseModal from './modals/ConfirmCloseModal';
 import SecretKeyModal from './modals/SecretKeyModal';
 import RecoveryKeyModal from './modals/RecoveryKeyModal';
 import SecretInput from './SecretInput';
+import ActiveUsersSidebar from './ActiveUsersSidebar';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -618,82 +619,102 @@ function ChatRoom() {
     };
   };
 
+  // Add this new handler function
+  const handleFileDelete = async (fileId) => {
+    try {
+      await api.deleteFile(fileId);
+      // Update the files list
+      setUploadedFiles(prev => prev.filter(file => file.id !== fileId));
+      
+      // Add system message about the file deletion
+      setMessages(prev => [...prev, {
+        content: `${username} removed a file`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        type: 'file-delete'
+      }]);
+    } catch (error) {
+      console.error('Error deleting file:', error);
+      setError('Failed to delete file');
+    }
+  };
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
-        <div className="card w-[32rem] bg-base-200 shadow-xl rounded-2xl hover:shadow-2xl transition-all duration-300">
-          <div className="card-body">
-            <h2 className="card-title text-2xl font-bold mb-4">Join Chat</h2>
-            
-            {error && (
-              <div className="alert alert-error mb-4">
-                <span>{error}</span>
+        <div className="w-full max-w-2xl">
+          <div className="card bg-base-200 shadow-xl rounded-2xl hover:shadow-2xl transition-all duration-300">
+            <div className="card-body">
+              <h2 className="card-title text-2xl font-bold mb-4">Join Chat</h2>
+              
+              {/* Active Users Section */}
+              <div className="mb-6">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+                  <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
+                    Active Users ({activeUsers.length})
+                  </h3>
+                </div>
+                <div className="flex flex-wrap gap-2">
+                  {activeUsers.map(user => (
+                    <div 
+                      key={user.username}
+                      className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
+                    >
+                      <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
+                      {user.username}
+                    </div>
+                  ))}
+                </div>
               </div>
-            )}
-            
-            {/* Current Users Section */}
-            <div className="bg-base-100/50 backdrop-blur-sm border border-base-300 rounded-xl p-4 mb-6">
-              <div className="flex items-center gap-2 mb-3">
-                <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
-                  Active Users
-                </h3>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {activeUsers.map(user => (
-                  <div 
-                    key={user.id} 
-                    className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
-                  >
-                    <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                    {user.username}
-                  </div>
-                ))}
-                {activeUsers.length === 0 && (
-                  <p className="text-sm text-base-content/50 italic">
-                    No users currently in the chat
-                  </p>
-                )}
-              </div>
-            </div>
 
-            <form onSubmit={joinChat} className="space-y-4">
-              {/* Only show username input if not recovering and not the owner */}
-              {!location.state?.isRecovery && !location.state?.isNewRoom && (
-                <div className="form-control">
-                  <label className="label">
-                    <span className="label-text">Your Name</span>
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="Enter your name"
-                    className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                  />
+              <div className="divider my-0"></div>
+              
+              {error && (
+                <div className="alert alert-error mb-4">
+                  <span>{error}</span>
                 </div>
               )}
+              
+              <form onSubmit={joinChat} className="space-y-4">
+                {/* Only show username input if not recovering and not the owner */}
+                {!location.state?.isRecovery && !location.state?.isNewRoom && (
+                  <div className="form-control">
+                    <label className="label">
+                      <span className="label-text">Your Name</span>
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Enter your name"
+                      className="input input-bordered w-full rounded-xl focus:ring-2 focus:ring-primary transition-all duration-300"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                    />
+                  </div>
+                )}
 
-              <div className="form-control">
-                <label className="label">
-                  <span className="label-text">Secret Key</span>
-                </label>
-                <SecretInput
-                  value={secretKey}
-                  onChange={(e) => setSecretKey(e.target.value)}
-                  placeholder="Enter secret key"
-                />
-              </div>
+                <div className="form-control">
+                  <label className="label">
+                    <span className="label-text">Secret Key</span>
+                  </label>
+                  <SecretInput
+                    value={secretKey}
+                    onChange={(e) => setSecretKey(e.target.value)}
+                    placeholder="Enter secret key"
+                  />
+                </div>
 
-              <div className="card-actions justify-end mt-6">
-                <button 
-                  className="btn btn-primary rounded-xl hover:scale-105 transition-all duration-300"
-                  disabled={(!username.trim() && !location.state?.isRecovery && !location.state?.isNewRoom) || !secretKey.trim()}
-                >
-                  Join
-                </button>
-              </div>
-            </form>
+                <div className="card-actions justify-end mt-6">
+                  <button 
+                    className="btn btn-primary rounded-xl hover:scale-105 transition-all duration-300"
+                    disabled={(!username.trim() && !location.state?.isRecovery && !location.state?.isNewRoom) || !secretKey.trim()}
+                  >
+                    Join
+                  </button>
+                </div>
+              </form>
+            </div>
           </div>
         </div>
       </div>
@@ -704,170 +725,24 @@ function ChatRoom() {
     <div className="grid grid-cols-4 gap-4 p-4 max-w-[1920px] mx-auto h-[calc(100vh-12rem)]">
       {/* Active Users Sidebar */}
       <div className="col-span-1 card bg-base-200 shadow-xl rounded-2xl max-h-[calc(100vh-12rem)] overflow-hidden">
-        <div className="card-body overflow-y-auto">
-          <div className="flex items-center gap-2 mb-3">
-            <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-            <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
-              Active Users ({activeUsers.length})
-            </h3>
-          </div>
-          <div className="flex flex-wrap gap-2">
-            {activeUsers.map(user => (
-              <div 
-                key={user.username}
-                className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
-              >
-                <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                {user.username}
-              </div>
-            ))}
-          </div>
-
-          {/* File Upload Section */}
-          <div className="border-t border-base-300 pt-6">
-            <div className="flex items-center gap-2 mb-3">
-              <div className="w-2 h-2 bg-info rounded-full"></div>
-              <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
-                Evidence Files
-              </h3>
-            </div>
-            
-            <div className="space-y-4">
-              <label className="flex flex-col gap-2">
-                <div className="btn btn-sm btn-primary rounded-xl w-full normal-case">
-                  <input
-                    type="file"
-                    accept=".csv,.tsv,.txt"
-                    onChange={handleFileUpload}
-                    className="hidden"
-                  />
-                  Upload File
-                </div>
-                <span className="text-xs text-base-content/70 text-center">
-                  Supports CSV, TSV, and TXT files
-                </span>
-              </label>
-
-              {uploadProgress > 0 && uploadProgress < 100 && (
-                <div className="w-full bg-base-300 rounded-full h-1.5">
-                  <div 
-                    className="bg-primary h-1.5 rounded-full transition-all duration-300"
-                    style={{ width: `${uploadProgress}%` }}
-                  ></div>
-                </div>
-              )}
-
-              {/* Add separator only when files exist */}
-              {uploadedFiles.length > 0 && (
-                <div className="border-t border-base-300 my-6"></div>
-              )}
-
-              {uploadedFiles.length > 0 && (
-                <div className="space-y-2">
-                  <div className="flex items-center justify-between mb-2">
-                    <div className="text-xs text-base-content/70 uppercase tracking-wide">
-                      Uploaded Files ({uploadedFiles.length})
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <select 
-                        className="select select-sm select-ghost"
-                        value={sortBy}
-                        onChange={(e) => setSortBy(e.target.value)}
-                      >
-                        <option value="date">Date</option>
-                        <option value="name">Name</option>
-                      </select>
-                      <button
-                        onClick={() => setSortOrder(order => order === 'asc' ? 'desc' : 'asc')}
-                        className="btn btn-ghost btn-sm btn-square"
-                      >
-                        {sortOrder === 'asc' ? '↑' : '↓'}
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="relative">
-                    <input
-                      type="text"
-                      placeholder="Search files..."
-                      className="input input-sm input-bordered w-full rounded-xl mb-2"
-                      value={searchTerm}
-                      onChange={(e) => setSearchTerm(e.target.value)}
-                    />
-                    {searchTerm && (
-                      <button
-                        onClick={() => setSearchTerm('')}
-                        className="absolute right-2 top-1/2 -translate-y-1/2 text-base-content/50 hover:text-base-content"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-
-                  <div className={`
-                    ${uploadedFiles.length > MAX_FILES_BEFORE_SCROLL ? 'max-h-[300px] overflow-y-auto scrollbar-thin scrollbar-thumb-base-300 scrollbar-track-base-100' : ''}
-                    pr-2
-                  `}>
-                    {getDisplayedFiles().files.map((file) => (
-                      <div 
-                        key={file.id}
-                        className="flex flex-col gap-1 p-2 bg-base-300/50 rounded-lg text-sm hover:bg-base-300 transition-colors duration-200 mb-2"
-                      >
-                        <button
-                          onClick={() => handleFileDownload(file.id, file.original_filename)}
-                          className="flex flex-col gap-1 w-full text-left"
-                        >
-                          <span className="truncate font-medium hover:text-primary transition-colors">
-                            {file.original_filename}
-                          </span>
-                          <div className="flex items-center justify-between text-xs text-base-content/70 space-x-2">
-                            <span className="min-w-[80px]">{formatFileSize(file.file_size)}</span>
-                            <span>{new Date(file.created_at).toLocaleString()}</span>
-                          </div>
-                          {file.processing_error && (
-                            <span className="text-xs text-error mt-1">
-                              {file.processing_error}
-                            </span>
-                          )}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-
-                  {/* Pagination */}
-                  {getDisplayedFiles().totalPages > 1 && (
-                    <div className="flex justify-center items-center gap-2 mt-4">
-                      <button
-                        onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                        disabled={currentPage === 1}
-                        className="btn btn-ghost btn-xs px-2"
-                      >
-                        ←
-                      </button>
-                      <span className="text-xs">
-                        Page {currentPage} of {getDisplayedFiles().totalPages}
-                      </span>
-                      <button
-                        onClick={() => setCurrentPage(p => Math.min(getDisplayedFiles().totalPages, p + 1))}
-                        disabled={currentPage === getDisplayedFiles().totalPages}
-                        className="btn btn-ghost btn-xs px-2"
-                      >
-                        →
-                      </button>
-                    </div>
-                  )}
-
-                  {/* No results message */}
-                  {searchTerm && getDisplayedFiles().totalFiles === 0 && (
-                    <div className="text-center text-sm text-base-content/50 py-4">
-                      No files match your search
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        <ActiveUsersSidebar 
+          activeUsers={activeUsers}
+          username={username}
+          uploadedFiles={uploadedFiles}
+          uploadProgress={uploadProgress}
+          onFileUpload={handleFileUpload}
+          handleFileDownload={handleFileDownload}
+          searchTerm={searchTerm}
+          setSearchTerm={setSearchTerm}
+          sortBy={sortBy}
+          setSortBy={setSortBy}
+          sortOrder={sortOrder}
+          setSortOrder={setSortOrder}
+          getDisplayedFiles={getDisplayedFiles}
+          currentPage={currentPage}
+          setCurrentPage={setCurrentPage}
+          onFileDelete={handleFileDelete}
+        />
       </div>
 
       {/* Chat Area */}
