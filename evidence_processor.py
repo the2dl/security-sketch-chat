@@ -121,7 +121,7 @@ class EvidenceProcessor:
         {{"message": "Process hash identified: 0c32215fbaf5e83772997a7891b1d2ad [T1059]", "datetime": "2024-10-16T08:50:00Z", "timestamp_desc": "File Hash", "md5_hash": "0c32215fbaf5e83772997a7891b1d2ad", "observer_name": "alice"}}
         
         Important notes:
-        1. Always include the observer_name (the person reporting the activity)
+        1. Always include the observer_name (the person uploading the activity), for example if melvin uploaded the activity, the observer_name should be melvin
         2. Only include technical details (IPs, ports, protocols) that were explicitly mentioned in the message
         3. Include timestamp from when the message was sent
         4. Use appropriate timestamp_desc values like "Network Connection", "DNS Activity", "Network Security", "Data Loss Prevention", "Process Execution", "Authentication"
@@ -136,6 +136,8 @@ class EvidenceProcessor:
         Investigation: {room_name}
         Content:
         {content}
+
+        Note: If a file does not appear to contain any security content, respond with "No security content found".
 
         Your response should either be valid JSON lines or "No security content found".
         '''

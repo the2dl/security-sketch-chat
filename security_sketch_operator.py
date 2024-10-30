@@ -206,7 +206,9 @@ class SecuritySketchOperator:
 
             messages_by_room = {}
             
-            # Update query to also fetch sketch_id
+            # Get current timestamp for initializing new rooms
+            current_time = datetime.now(timezone.utc).isoformat()
+            
             cur.execute("""
                 SELECT DISTINCT r.id, r.name, r.sketch_id 
                 FROM rooms r 
@@ -217,12 +219,12 @@ class SecuritySketchOperator:
             logging.info(f"Found {len(rooms)} active rooms")
 
             for room_id, room_name, sketch_id in rooms:
-                # Skip rooms without sketch_id
                 if not sketch_id:
                     logging.warning(f"Room {room_name} has no sketch_id, skipping")
                     continue
 
-                last_processed = self.last_processed_timestamps.get(str(room_id), '1970-01-01')
+                # Use current time if room hasn't been processed before
+                last_processed = self.last_processed_timestamps.get(str(room_id), current_time)
                 logging.info(f"Checking room {room_name} (ID: {room_id}, Sketch ID: {sketch_id}) for messages after {last_processed}")
                 
                 cur.execute("""
