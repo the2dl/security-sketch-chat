@@ -197,7 +197,40 @@ function ChatRoom() {
         });
       });
 
-      return socket;
+      // Add this back
+      const keepAlivePing = setInterval(() => {
+        if (isJoined && roomId && userId) {
+          socket.emit('keep_alive', { roomId, userId });
+        }
+      }, 5000);
+
+      // Add this back
+      const refreshInterval = setInterval(async () => {
+        try {
+          if (roomId && isJoined && userId) {
+            const activeUsers = await api.getActiveUsers(roomId);
+            setActiveUsers(prevUsers => {
+              // Only update if the list has actually changed
+              const currentIds = prevUsers.map(u => u.id).sort().join(',');
+              const newIds = activeUsers.map(u => u.id).sort().join(',');
+              return currentIds !== newIds ? activeUsers : prevUsers;
+            });
+          }
+        } catch (error) {
+          console.error('Error refreshing active users:', error);
+        }
+      }, 15000);
+
+      return () => {
+        console.log('Cleaning up socket listeners');
+        if (userId) {
+          api.leaveRoom(roomId, userId);
+        }
+        api.cleanup();
+        api.disconnect();
+        clearInterval(refreshInterval);
+        clearInterval(keepAlivePing);
+      };
     };
 
     const socket = setupSocketListeners();
