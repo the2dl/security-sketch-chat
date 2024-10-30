@@ -1,7 +1,38 @@
 import React from 'react';
 import SecretInput from '../SecretInput';
+import { FaDownload, FaCopy } from 'react-icons/fa';
 
-function SecretKeyModal({ isOpen, onClose, secretKey }) {
+function SecretKeyModal({ isOpen, onClose, secretKey, username, roomName }) {
+  const downloadKeyFile = () => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `secret-key_${roomName}_${timestamp}.txt`;
+    const content = `Secret Key for ${roomName}
+Generated: ${new Date().toLocaleString()}
+Secret Key: ${secretKey}
+
+This is the secret key needed to join this investigation room.
+You can share this key with other investigators who need access.`;
+
+    const blob = new Blob([content], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const copyToClipboard = async () => {
+    try {
+      await navigator.clipboard.writeText(secretKey);
+      // Optionally show a toast or some feedback
+    } catch (err) {
+      console.error('Failed to copy:', err);
+    }
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -13,6 +44,22 @@ function SecretKeyModal({ isOpen, onClose, secretKey }) {
             value={secretKey}
             readOnly={true}
           />
+        </div>
+        <div className="flex gap-2 mt-4">
+          <button 
+            className="btn btn-ghost gap-2 flex-1"
+            onClick={copyToClipboard}
+          >
+            <FaCopy className="w-4 h-4" />
+            Copy
+          </button>
+          <button 
+            className="btn btn-ghost gap-2 flex-1"
+            onClick={downloadKeyFile}
+          >
+            <FaDownload className="w-4 h-4" />
+            Download
+          </button>
         </div>
         <div className="modal-action mt-6">
           <button 
