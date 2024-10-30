@@ -161,6 +161,29 @@ function ChatRoom() {
         }]);
       });
 
+      api.onNewMessage((message) => {
+        console.log('New message received in ChatRoom:', message);
+        setMessages(prevMessages => {
+          // Only add server messages that aren't already in the list
+          const messageExists = prevMessages.some(m => 
+            m.id === message.id || 
+            (m.content === message.content && 
+             m.username === message.username && 
+             !m.id) // Check for optimistically added messages
+          );
+          
+          if (messageExists) {
+            // Update the optimistic message with the server data
+            return prevMessages.map(m => 
+              (m.content === message.content && m.username === message.username && !m.id)
+                ? message 
+                : m
+            );
+          }
+          return [...prevMessages, message];
+        });
+      });
+
       return socket;
     };
 
