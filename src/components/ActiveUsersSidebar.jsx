@@ -1,6 +1,7 @@
 import { HiUserAdd } from 'react-icons/hi';
 import { FaFileUpload, FaTrash, FaRobot } from 'react-icons/fa';
 import { useState } from 'react';
+import { useTheme } from '../context/ThemeContext';
 import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
 
 function ActiveUsersSidebar({ 
@@ -22,6 +23,7 @@ function ActiveUsersSidebar({
   onFileDelete,
 }) {
   const [fileToDelete, setFileToDelete] = useState(null);
+  const { theme } = useTheme();
 
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
@@ -44,6 +46,14 @@ function ActiveUsersSidebar({
     }
   };
 
+  const getBotBadgeStyles = () => {
+    if (theme === 'corporate') {
+      return 'badge badge-primary bg-primary/10 border-primary/20 text-primary gap-2 p-3 rounded-lg';
+    }
+    // Default dark theme styles
+    return 'badge badge-primary bg-purple-500/10 border-purple-500/20 text-purple-300 gap-2 p-3 rounded-lg';
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Active Users Section */}
@@ -56,9 +66,9 @@ function ActiveUsersSidebar({
         </div>
         <div className="flex flex-wrap gap-2">
           {/* Bot user - always shown first */}
-          <div className="badge badge-primary bg-purple-500/10 border-purple-500/20 text-purple-300 gap-2 p-3 rounded-lg">
+          <div className={getBotBadgeStyles()}>
             <FaRobot className="w-3.5 h-3.5" />
-            SecurityBot
+            sketchy
           </div>
           
           {/* Existing user badges */}

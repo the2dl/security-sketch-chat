@@ -179,7 +179,7 @@ function Home() {
 
           {/* Updated Rooms Section */}
           <div className="space-y-4">
-            <h2 className="card-title text-xl">Investigation Rooms</h2>
+            <h2 className="card-title text-xl">Sketching Rooms</h2>
             {loading ? (
               <div className="flex justify-center">
                 <span className="loading loading-spinner loading-md"></span>

@@ -147,10 +147,10 @@ app.post('/api/chat/bot', validateApiKey, async (req, res) => {
       },
     ];
 
-    const userQuestion = message.replace(/@SecurityBot/i, '').trim();
+    const userQuestion = message.replace(/@sketchy/i, '').trim();
     
     // Combine the system prompt and user question into a single context
-    const prompt = `You are SecurityBot, an AI assistant focused exclusively on information security, digital forensics, and IT security topics. 
+    const prompt = `You are sketchy, an AI assistant focused exclusively on information security, digital forensics, and IT security topics. 
 
 STRICT RULES:
 - Only respond to questions about information security, cybersecurity, digital forensics, incident response, malware analysis, network security, Windows/Linux security events and logs, and related IT security topics
@@ -187,7 +187,7 @@ User question: ${userQuestion}`;
 
     const botMessage = {
       content: response.text().trim(),
-      username: 'SecurityBot',
+      username: 'sketchy',
       timestamp: timestamp,
       isBot: true,
       id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`

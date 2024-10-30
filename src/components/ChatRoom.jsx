@@ -51,19 +51,35 @@ function ChatRoom() {
       if (index % 2 === 0) {
         return part;
       }
+      const isBot = part.toLowerCase() === 'sketchy';
       const isActiveUser = activeUsers.some(user => user.username.toLowerCase() === part.toLowerCase());
       const isMentionedUser = part.toLowerCase() === username.toLowerCase();
+      
+      let className = 'inline-block px-2 py-0.5 rounded-md font-medium ';
+      if (theme === 'corporate') {
+        // Light theme colors with increased contrast
+        if (isBot) {
+          className += 'bg-primary/25 text-primary-focus';
+        } else if (isActiveUser) {
+          className += isMentionedUser
+            ? 'bg-primary/30 text-primary-focus'
+            : 'bg-neutral/25 text-neutral';
+        }
+      } else {
+        // Dark (dracula) theme colors
+        if (isBot) {
+          className += 'bg-purple-500/20 text-purple-300';
+        } else if (isActiveUser) {
+          className += isMentionedUser
+            ? 'bg-teal-500/20 text-teal-300'
+            : 'bg-slate-300/10 text-slate-300';
+        }
+      }
       
       return (
         <span
           key={index}
-          className={`inline-block ${
-            isActiveUser 
-              ? isMentionedUser
-                ? 'bg-primary/20 text-primary-content px-1 rounded'
-                : 'bg-base-content/10 px-1 rounded'
-              : ''
-          }`}
+          className={className}
         >
           @{part}
         </span>
@@ -337,11 +353,11 @@ function ChatRoom() {
     setMessage('');
     
     try {
-      if (trimmedMessage.toLowerCase().includes('@securitybot')) {
+      if (trimmedMessage.toLowerCase().includes('@sketchy')) {
         // Add typing indicator with unique ID
         const typingMessage = {
-          content: 'SecurityBot is typing...',
-          username: 'SecurityBot',
+          content: 'sketchy is typing...',
+          username: 'sketchy',
           isTyping: true,
           timestamp: new Date().toISOString(),
           id: `typing-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
@@ -395,7 +411,7 @@ function ChatRoom() {
     
     if (wordBeforeCursor.startsWith('@')) {
       const filter = wordBeforeCursor.slice(1).toLowerCase();
-      const showBot = 'securitybot'.includes(filter);
+      const showBot = 'sketchy'.includes(filter);
       
       setMentionFilter(filter);
       setShowMentions(showBot || activeUsers.some(user => 
@@ -840,7 +856,11 @@ function ChatRoom() {
             {messages.map((msg, index) => (
               <div key={msg.id || `temp-${index}`}>
                 {msg.isBot ? (
-                  <BotMessage message={msg.content} timestamp={msg.timestamp} />
+                  <BotMessage 
+                    message={msg.content} 
+                    timestamp={msg.timestamp} 
+                    theme={theme} 
+                  />
                 ) : (
                   <div
                     key={msg.id || `temp-${index}`}
@@ -927,13 +947,13 @@ function ChatRoom() {
                   
                   {showMentions && (
                     <div className="fixed transform -translate-y-full left-auto mb-2 w-48 bg-base-200 rounded-lg shadow-xl border border-base-300 z-50">
-                      {'securitybot'.includes(mentionFilter.toLowerCase()) && (
+                      {'sketchy'.includes(mentionFilter.toLowerCase()) && (
                         <button
-                          onClick={() => handleMentionClick('SecurityBot')}
+                          onClick={() => handleMentionClick('sketchy')}
                           className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg flex items-center gap-2 text-purple-400"
                         >
                           <FaRobot className="w-3.5 h-3.5" />
-                          SecurityBot
+                          sketchy
                         </button>
                       )}
                       
