@@ -4,8 +4,8 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaEye, FaEyeSlash, FaExternalLinkAlt, FaCopy } from 'react-icons/fa';
-import { HiOutlineLogout } from 'react-icons/hi';
+import { FaEye, FaEyeSlash, FaExternalLinkAlt, FaCopy, FaFileUpload } from 'react-icons/fa';
+import { HiOutlineLogout, HiUserAdd } from 'react-icons/hi';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -161,12 +161,13 @@ function ChatRoom() {
           return [...prevUsers, user];
         });
       }
-      // Add system message for user join
+      // Update system message to include type
       setMessages(prev => [...prev, {
         content: `${user.username} joined the chat`,
         username: 'system',
         timestamp: new Date().toISOString(),
-        isSystem: true
+        isSystem: true,
+        type: 'user-join'
       }]);
     });
 
@@ -639,6 +640,16 @@ function ChatRoom() {
       };
 
       setUploadedFiles(prev => [...prev, newFile]);
+      
+      // Add system message about the file upload
+      setMessages(prev => [...prev, {
+        content: `${username} uploaded ${file.name}`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        type: 'file-upload'
+      }]);
+
       setUploadProgress(0);
     } catch (error) {
       console.error('Upload failed:', error);
@@ -989,31 +1000,38 @@ function ChatRoom() {
             </div>
             <div className="flex items-center gap-4">
               {sketchId && (
-                <a
-                  href={`${process.env.REACT_APP_TIMESKETCH_HOST}/sketch/${sketchId}/explore`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
-                >
-                  <FaExternalLinkAlt className="w-3.5 h-3.5 mr-2" />
-                  Open in Timesketch
-                </a>
+                <div className="tooltip tooltip-bottom" data-tip="Open this investigation's timeline in Timesketch">
+                  <a
+                    href={`${process.env.REACT_APP_TIMESKETCH_HOST}/sketch/${sketchId}/explore`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
+                  >
+                    <FaExternalLinkAlt className="w-3.5 h-3.5 mr-2" />
+                    Open in Timesketch
+                  </a>
+                </div>
               )}
               {isRoomOwner && (
                 <>
-                  <button 
-                    onClick={() => setShowSecretKeyModal(true)}
-                    className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
-                  >
-                    View Secret Key
-                  </button>
-                  <button 
-                    onClick={handleCloseRoom}
-                    className="btn btn-ghost btn-sm px-4 hover:bg-red-500/10 text-red-500 hover:text-red-600 rounded-xl border-none transition-all duration-300"
-                  >
-                    <HiOutlineLogout className="w-5 h-5 mr-1.5" />
-                    Close Investigation
-                  </button>
+                  <div className="tooltip tooltip-bottom" data-tip="Copy the secret key to share with others who need to join">
+                    <button 
+                      onClick={() => copyToClipboard(secretKey, 'Secret key')}
+                      className="btn btn-ghost btn-sm px-4 hover:bg-primary/10 text-primary hover:text-primary rounded-xl border-none transition-all duration-300"
+                    >
+                      <FaCopy className="w-3.5 h-3.5 mr-2" />
+                      Copy Secret Key
+                    </button>
+                  </div>
+                  <div className="tooltip tooltip-bottom" data-tip="Close this investigation and end the chat for all participants">
+                    <button 
+                      onClick={handleCloseRoom}
+                      className="btn btn-ghost btn-sm px-4 hover:bg-red-500/10 text-red-500 hover:text-red-600 rounded-xl border-none transition-all duration-300"
+                    >
+                      <HiOutlineLogout className="w-5 h-5 mr-1.5" />
+                      Close Investigation
+                    </button>
+                  </div>
                 </>
               )}
             </div>
@@ -1044,7 +1062,11 @@ function ChatRoom() {
                 )}
                 <div className={`rounded-lg break-words ${
                   msg.isSystem 
-                    ? 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
+                    ? msg.type === 'file-upload'
+                      ? 'text-xs bg-primary/10 text-primary px-4 py-2 flex items-center gap-2'
+                      : msg.type === 'user-join'
+                        ? 'text-xs bg-success/10 text-success px-4 py-2 flex items-center gap-2'
+                        : 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
                     : `max-w-[75%] px-4 py-2 ${
                       msg.username === username 
                         ? theme === 'black'
@@ -1055,7 +1077,19 @@ function ChatRoom() {
                           : 'bg-gray-200 text-gray-800 shadow-md'
                     }`
                 }`}>
-                  {formatMessageContent(msg.content, username)}
+                  {msg.type === 'file-upload' ? (
+                    <>
+                      <FaFileUpload className="w-3.5 h-3.5" />
+                      {msg.content}
+                    </>
+                  ) : msg.type === 'user-join' ? (
+                    <>
+                      <HiUserAdd className="w-3.5 h-3.5" />
+                      {msg.content}
+                    </>
+                  ) : (
+                    formatMessageContent(msg.content, username)
+                  )}
                 </div>
               </div>
             ))}
