@@ -1,5 +1,7 @@
 import { HiUserAdd } from 'react-icons/hi';
 import { FaFileUpload, FaTrash } from 'react-icons/fa';
+import { useState } from 'react';
+import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
 
 function ActiveUsersSidebar({ 
   activeUsers, 
@@ -19,6 +21,8 @@ function ActiveUsersSidebar({
   setCurrentPage,
   onFileDelete,
 }) {
+  const [fileToDelete, setFileToDelete] = useState(null);
+
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
     const k = 1024;
@@ -28,6 +32,17 @@ function ActiveUsersSidebar({
   };
 
   const MAX_FILES_BEFORE_SCROLL = 4;
+
+  const handleDeleteClick = (file) => {
+    setFileToDelete(file);
+  };
+
+  const handleConfirmDelete = async () => {
+    if (fileToDelete) {
+      await onFileDelete(fileToDelete.id);
+      setFileToDelete(null);
+    }
+  };
 
   return (
     <div className="flex flex-col h-full">
@@ -156,7 +171,7 @@ function ActiveUsersSidebar({
                       </button>
                       
                       <button
-                        onClick={() => onFileDelete(file.id)}
+                        onClick={() => handleDeleteClick(file)}
                         className="btn btn-ghost btn-xs text-error hover:bg-error/10"
                         title="Delete file"
                       >
@@ -206,6 +221,13 @@ function ActiveUsersSidebar({
           )}
         </div>
       </div>
+
+      <ConfirmDeleteModal
+        isOpen={fileToDelete !== null}
+        onClose={() => setFileToDelete(null)}
+        onConfirm={handleConfirmDelete}
+        filename={fileToDelete?.original_filename}
+      />
     </div>
   );
 }
