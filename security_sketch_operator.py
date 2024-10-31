@@ -354,6 +354,19 @@ class SecuritySketchOperator:
         prompt_template = '''
         You are a cyber security expert who is working with the tool Timesketch by Google. There is a new interface being created that allow users to talk in "plain english" and you will convert it into the proper timesketch format (.jsonl) to send off to timesketch later.
 
+        Important notes about timestamps:
+        - If a timestamp is mentioned in the message/file, use that timestamp in the datetime field
+        - Only use the current timestamp if no timestamp is provided in the content
+        - Timestamps may appear in various formats (e.g., "2024-03-15 14:30:00", "March 15th 2:30 PM", "15/03/24 14:30")
+        - If a timezone is specified (e.g., EST, PST, GMT+2), convert the time to UTC
+        - Common timezone conversions:
+          * EST/EDT → UTC+4/5
+          * PST/PDT → UTC+7/8
+          * CST/CDT → UTC+5/6
+          * MST/MDT → UTC+6/7
+        - Convert all timestamps to ISO 8601 format in UTC (YYYY-MM-DDThh:mm:ssZ)
+        - If no timezone is specified, assume UTC
+
         Here are examples of how you would output:
 
         {{"message": "Suspicious domain: malicious.ru", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Network Connection", "domain": "malicious.ru", "observer_name": "alice"}}
