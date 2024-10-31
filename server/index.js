@@ -212,6 +212,17 @@ User question: ${userQuestion}`;
 io.on('connection', (socket) => {
   console.log('User connected:', socket.id);
 
+  // Add new handler for explicit room joining
+  socket.on('join_socket_room', ({ roomId }) => {
+    console.log(`Socket ${socket.id} joining room ${roomId}`);
+    socket.join(roomId);
+    
+    // Log all sockets in this room
+    const room = io.sockets.adapter.rooms.get(roomId);
+    console.log(`Current sockets in room ${roomId}:`, 
+      room ? Array.from(room) : 'No sockets');
+  });
+
   // Add keep_alive handler
   socket.on('keep_alive', async ({ roomId, userId }) => {
     try {
@@ -229,6 +240,11 @@ io.on('connection', (socket) => {
 
   socket.on('join_room', async ({ roomId, username, userId, secretKey, isOwner }) => {
     try {
+      // Explicitly join the socket room
+      socket.join(roomId);
+      socket.userData = { roomId, userId, username };
+      console.log(`Socket ${socket.id} joined room ${roomId}`);
+
       // First verify the room and secret key
       const roomResult = await pool.query(
         'SELECT * FROM rooms WHERE id = $1 AND secret_key = $2',
@@ -320,23 +336,23 @@ io.on('connection', (socket) => {
         isOwner: isRoomOwner  // Include owner status in response
       });
 
-      // Notify others
+      // Broadcast user joined to all clients in the room EXCEPT the sender
       socket.to(roomId).emit('user_joined', {
         userId: userId,
         username: username
       });
 
-      // Add system message for user joining
+      // Add system message for user joining and broadcast to ALL clients
       const joinMessage = {
         content: `${username} joined the investigation`,
         username: 'system',
         timestamp: new Date().toISOString(),
         isSystem: true,
-        type: 'user-join'
+        type: 'user-join',
+        id: `system-${Date.now()}`
       };
       
-      // Emit join message to all users in the room
-      socket.to(roomId).emit('new_message', joinMessage);
+      io.in(roomId).emit('new_message', joinMessage);
     } catch (error) {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });
@@ -409,6 +425,11 @@ io.on('connection', (socket) => {
         throw new Error('User ID is required');
       }
 
+      // Log room membership before sending
+      const room = io.sockets.adapter.rooms.get(roomId);
+      console.log(`Before sending message to room ${roomId}:`, 
+        room ? Array.from(room) : 'No sockets');
+
       // Save message to database
       const result = await pool.query(
         'INSERT INTO messages (room_id, user_id, content) VALUES ($1, $2, $3) RETURNING id, content, created_at as timestamp',
@@ -423,15 +444,19 @@ io.on('connection', (socket) => {
         roomId
       };
 
-      console.log('Broadcasting new message:', messageData);
+      console.log(`Broadcasting message to room ${roomId}:`, messageData);
       
-      // Make sure the socket is in the room
+      // Ensure the socket is in the room before broadcasting
       if (!socket.rooms.has(roomId)) {
+        console.log(`Socket ${socket.id} not in room ${roomId}, rejoining...`);
         socket.join(roomId);
       }
       
-      // Broadcast to ALL clients in the room, including sender
+      // Broadcast to ALL clients in the room
       io.in(roomId).emit('new_message', messageData);
+      
+      // Log successful broadcast
+      console.log(`Message broadcast complete to room ${roomId}`);
     } catch (error) {
       console.error('Error sending message:', error);
       socket.emit('error', { message: 'Failed to send message' });

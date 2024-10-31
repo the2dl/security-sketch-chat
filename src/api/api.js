@@ -25,16 +25,26 @@ const initSocket = () => {
     socket = io('http://localhost:3000', {
       withCredentials: true,
       auth: { apiKey: API_KEY },
-      transports: ['websocket']
+      transports: ['websocket'],
+      reconnection: true,
+      reconnectionAttempts: 5
     });
 
-    // Add debug logging for socket events
     socket.on('connect', () => {
-      console.log('Socket connected');
+      console.log('Socket connected with ID:', socket.id);
+      
+      // Re-join rooms after reconnection
+      const currentRooms = Object.keys(socket.rooms || {});
+      currentRooms.forEach(roomId => {
+        if (roomId !== socket.id) {  // Skip the default room
+          console.log('Rejoining room after connect:', roomId);
+          socket.emit('join_socket_room', { roomId });
+        }
+      });
     });
 
-    socket.on('bot_message', (message) => {
-      console.log('Socket received bot message:', message);
+    socket.on('disconnect', () => {
+      console.log('Socket disconnected');
     });
 
     socket.on('error', (error) => {
@@ -51,6 +61,9 @@ const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false) =
   }
   
   return new Promise((resolve, reject) => {
+    // Explicitly join socket room first
+    socket.emit('join_socket_room', { roomId });
+    
     socket.once('error', (error) => {
       console.error('Join room error:', error);
       reject(error);
@@ -93,9 +106,13 @@ const sendMessage = ({ roomId, username, content }) => {
       return;
     }
 
+    // Make sure we're in the room before sending
+    if (!socket.rooms?.has(roomId)) {
+      socket.emit('join_socket_room', { roomId });
+    }
+
     socket.emit('send_message', { roomId, username, content, userId });
     
-    // Add error handler
     socket.once('error', (error) => {
       console.error('Send message error:', error);
       reject(error);
@@ -113,9 +130,14 @@ const onNewMessage = (callback) => {
   if (!socket) {
     socket = initSocket();
   }
-  socket.off('new_message'); // Remove any existing listeners
+  
+  // Remove existing listeners to prevent duplicates
+  socket.off('new_message');
+  
+  // Add new listener with debug logging
   socket.on('new_message', (messageData) => {
-    console.log('New message received:', messageData);
+    console.log('Socket received new message:', messageData);
+    console.log('Current socket rooms:', socket.rooms);
     callback(messageData);
   });
 };

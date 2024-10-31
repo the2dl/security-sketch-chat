@@ -113,6 +113,12 @@ function ChatRoom() {
       const socket = api.initSocket();
       api.cleanup();
 
+      // Add explicit room join for room creator
+      if (location.state?.isNewRoom) {
+        console.log('Room creator joining socket room:', roomId);
+        socket.emit('join_socket_room', { roomId });
+      }
+
       api.onRoomJoined(({ 
         messages: roomMessages, 
         activeUsers: roomUsers, 
@@ -122,6 +128,9 @@ function ChatRoom() {
         recoveryKey: newRecoveryKey 
       }) => {
         console.log('Room joined, active users:', roomUsers);
+        
+        // Force rejoin socket room after room_joined event
+        socket.emit('join_socket_room', { roomId });
         
         setMessages(roomMessages || []);
         // Deduplicate users by username
@@ -289,6 +298,12 @@ function ChatRoom() {
     
     try {
       setError(null);
+      
+      // Get socket instance from api
+      const socket = api.initSocket();
+      
+      // Join the socket room immediately when connecting
+      socket.emit('join_socket_room', { roomId });
       
       if (location.state?.isRecovery) {
         console.log('Recovering session with:', location.state);
