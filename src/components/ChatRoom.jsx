@@ -694,6 +694,16 @@ function ChatRoom() {
     };
   }, []);
 
+  const handleRefreshFiles = async () => {
+    try {
+      const files = await api.refreshUploadedFiles(roomId);
+      setUploadedFiles(files);
+    } catch (error) {
+      console.error('Error refreshing files:', error);
+      setError('Failed to refresh files');
+    }
+  };
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -798,6 +808,7 @@ function ChatRoom() {
           currentPage={currentPage}
           setCurrentPage={setCurrentPage}
           onFileDelete={handleFileDelete}
+          onRefreshFiles={handleRefreshFiles}
         />
       </div>
 

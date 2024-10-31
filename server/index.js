@@ -944,6 +944,24 @@ app.delete('/api/files/:fileId', validateApiKey, async (req, res) => {
   }
 });
 
+// Add this with the other file-related endpoints
+app.get('/api/files/:roomId/refresh', validateApiKey, async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT id, original_filename, file_size, file_type, created_at
+       FROM uploaded_files
+       WHERE room_id = $1
+       ORDER BY created_at DESC`,
+      [req.params.roomId]
+    );
+
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error refreshing files:', error);
+    res.status(500).json({ error: 'Failed to refresh files' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);

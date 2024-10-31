@@ -1,5 +1,5 @@
 import { HiUserAdd } from 'react-icons/hi';
-import { FaFileUpload, FaTrash, FaRobot } from 'react-icons/fa';
+import { FaFileUpload, FaTrash, FaRobot, FaSync } from 'react-icons/fa';
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
@@ -21,6 +21,7 @@ function ActiveUsersSidebar({
   currentPage,
   setCurrentPage,
   onFileDelete,
+  onRefreshFiles,
 }) {
   const [fileToDelete, setFileToDelete] = useState(null);
   const { theme } = useTheme();
@@ -86,11 +87,22 @@ function ActiveUsersSidebar({
 
       {/* Evidence Files Section */}
       <div className="border-t border-base-300 pt-6 px-6 pb-6 flex-1">
-        <div className="flex items-center gap-2 mb-3">
-          <div className="w-2 h-2 bg-info rounded-full"></div>
-          <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
-            Evidence Files
-          </h3>
+        <div className="flex items-center justify-between mb-3">
+          <div className="flex items-center gap-2">
+            <div className="w-2 h-2 bg-info rounded-full"></div>
+            <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
+              Evidence Files
+            </h3>
+          </div>
+          {uploadedFiles.length === 0 && (
+            <button 
+              onClick={onRefreshFiles}
+              className="btn btn-ghost btn-sm btn-square hover:bg-base-300"
+              title="Refresh files"
+            >
+              <FaSync className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
         
         <div className="space-y-4">
@@ -125,8 +137,15 @@ function ActiveUsersSidebar({
           {uploadedFiles.length > 0 && (
             <div className="space-y-2">
               <div className="flex items-center justify-between mb-2">
-                <div className="text-xs text-base-content/70 uppercase tracking-wide">
+                <div className="text-xs text-base-content/70 uppercase tracking-wide flex items-center gap-2">
                   Uploaded Files ({uploadedFiles.length})
+                  <button 
+                    onClick={onRefreshFiles}
+                    className="btn btn-ghost btn-xs btn-square hover:bg-base-300"
+                    title="Refresh files"
+                  >
+                    <FaSync className="w-3 h-3" />
+                  </button>
                 </div>
                 <div className="flex items-center gap-2">
                   <select 

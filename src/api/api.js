@@ -401,4 +401,19 @@ export const api = {
       throw error;
     }
   },
+
+  refreshUploadedFiles: async (roomId) => {
+    try {
+      const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/${roomId}/refresh`);
+
+      if (!response.ok) {
+        throw new Error('Failed to refresh uploaded files');
+      }
+
+      return await response.json();
+    } catch (error) {
+      console.error('Error refreshing uploaded files:', error);
+      throw error;
+    }
+  },
 };
