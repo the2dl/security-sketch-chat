@@ -43,16 +43,15 @@ class SecuritySketchOperator:
     def __init__(self):
         self.model = genai.GenerativeModel(os.getenv('GEMINI_MODEL', 'gemini-1.5-pro-002'))
         self.last_processed_timestamps = {}
-        self.processed_messages_file = 'processed_messages.json'
-        self.processed_messages = self.load_processed_messages()
         self.output_dir = os.getenv('OUTPUT_DIR', 'sketch_files')
         
         # Create output directory if it doesn't exist
         os.makedirs(self.output_dir, exist_ok=True)
         
-        # Load the last processed timestamps at initialization
-        self.load_last_processed_timestamps()
-        logging.info(f"Initialized with timestamps: {self.last_processed_timestamps}")
+        # Initialize database table for processed messages
+        self.init_processed_messages_table()
+        
+        logging.info(f"Initialized SecuritySketchOperator")
 
         # Validate API key on initialization
         if not os.getenv('API_KEY'):
@@ -60,59 +59,135 @@ class SecuritySketchOperator:
             
         self.api_key = os.getenv('API_KEY')
 
-    def load_processed_messages(self):
-        """Load set of processed message IDs"""
+    def init_processed_messages_table(self):
+        """Initialize the database tables"""
         try:
-            if os.path.exists(self.processed_messages_file):
-                with open(self.processed_messages_file, 'r') as f:
-                    return set(json.load(f))
-            return set()
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            # Create table for processed messages
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS processed_messages (
+                    message_id TEXT PRIMARY KEY,
+                    processed_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            # Create table for last processed timestamps
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS last_processed_timestamps (
+                    room_id TEXT PRIMARY KEY,
+                    last_timestamp TIMESTAMP WITH TIME ZONE,
+                    updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+            
+            conn.commit()
+            
         except Exception as e:
-            logging.error(f"Error loading processed messages: {e}")
-            return set()
+            logging.error(f"Error initializing database tables: {e}")
+            raise
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
 
-    def save_processed_messages(self):
-        """Save set of processed message IDs"""
+    def get_last_processed_timestamp(self, room_id):
+        """Get last processed timestamp for a room from database"""
         try:
-            with open(self.processed_messages_file, 'w') as f:
-                json.dump(list(self.processed_messages), f)
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT last_timestamp 
+                FROM last_processed_timestamps 
+                WHERE room_id = %s
+            """, (str(room_id),))
+            
+            result = cur.fetchone()
+            return result[0].isoformat() if result and result[0] else '1970-01-01'
+            
         except Exception as e:
-            logging.error(f"Error saving processed messages: {e}")
+            logging.error(f"Error getting last processed timestamp: {e}")
+            return '1970-01-01'
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
+
+    def update_last_processed_timestamp(self, room_id, timestamp):
+        """Update last processed timestamp for a room in database"""
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                INSERT INTO last_processed_timestamps (room_id, last_timestamp)
+                VALUES (%s, %s)
+                ON CONFLICT (room_id) 
+                DO UPDATE SET 
+                    last_timestamp = EXCLUDED.last_timestamp,
+                    updated_at = CURRENT_TIMESTAMP
+            """, (str(room_id), timestamp))
+            
+            conn.commit()
+            logging.info(f"Updated last processed timestamp for room {room_id}: {timestamp}")
+            
+        except Exception as e:
+            logging.error(f"Error updating last processed timestamp: {e}")
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
 
     def is_message_processed(self, message_id):
-        """Check if a message has been processed"""
-        return message_id in self.processed_messages
+        """Check if a message has been processed using database"""
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT EXISTS(
+                    SELECT 1 FROM processed_messages 
+                    WHERE message_id = %s
+                )
+            """, (str(message_id),))
+            
+            return cur.fetchone()[0]
+            
+        except Exception as e:
+            logging.error(f"Error checking processed message: {e}")
+            return False
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
 
     def mark_message_processed(self, message_id):
-        """Mark a message as processed"""
-        self.processed_messages.add(message_id)
-        self.save_processed_messages()
-
-    def load_last_processed_timestamps(self):
-        """Load last processed timestamps from disk"""
+        """Mark a message as processed in database"""
         try:
-            if os.path.exists('last_processed.json'):
-                with open('last_processed.json', 'r') as f:
-                    content = f.read().strip()
-                    if content:  # Only try to load if file has content
-                        self.last_processed_timestamps = json.loads(content)
-                        logging.info(f"Loaded timestamps: {self.last_processed_timestamps}")
-                    else:
-                        self.last_processed_timestamps = {}
-            else:
-                self.last_processed_timestamps = {}
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                INSERT INTO processed_messages (message_id)
+                VALUES (%s)
+                ON CONFLICT (message_id) DO NOTHING
+            """, (str(message_id),))
+            
+            conn.commit()
+            
         except Exception as e:
-            logging.error(f"Error loading timestamps: {e}")
-            self.last_processed_timestamps = {}
-
-    def save_last_processed_timestamps(self):
-        """Save last processed timestamps to disk"""
-        try:
-            with open('last_processed.json', 'w') as f:
-                json.dump(self.last_processed_timestamps, f, indent=2)
-            logging.info(f"Saved timestamps: {self.last_processed_timestamps}")
-        except Exception as e:
-            logging.error(f"Error saving timestamps: {e}")
+            logging.error(f"Error marking message as processed: {e}")
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
 
     def get_sketch_file_path(self, sketch_id):
         """Get the path for a sketch's JSONL file"""
@@ -175,39 +250,7 @@ class SecuritySketchOperator:
             conn = psycopg2.connect(**DB_CONFIG)
             cur = conn.cursor()
 
-            # Add API key validation check
-            cur.execute("""
-                CREATE TABLE IF NOT EXISTS api_keys (
-                    key TEXT PRIMARY KEY,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
-                    last_used TIMESTAMP WITH TIME ZONE
-                )
-            """)
-            
-            # Insert the API key from environment if not exists
-            cur.execute("""
-                INSERT INTO api_keys (key) 
-                VALUES (%s) 
-                ON CONFLICT (key) DO NOTHING
-            """, (self.api_key,))
-            conn.commit()
-
-            # Validate API key
-            cur.execute("""
-                UPDATE api_keys 
-                SET last_used = CURRENT_TIMESTAMP 
-                WHERE key = %s 
-                RETURNING key
-            """, (self.api_key,))
-            
-            if not cur.fetchone():
-                logging.error("Invalid API key")
-                return {}
-
             messages_by_room = {}
-            
-            # Get current timestamp for initializing new rooms
-            current_time = datetime.now(timezone.utc).isoformat()
             
             cur.execute("""
                 SELECT DISTINCT r.id, r.name, r.sketch_id 
@@ -223,12 +266,11 @@ class SecuritySketchOperator:
                     logging.warning(f"Room {room_name} has no sketch_id, skipping")
                     continue
 
-                # Use current time if room hasn't been processed before
-                last_processed = self.last_processed_timestamps.get(str(room_id), current_time)
+                last_processed = self.get_last_processed_timestamp(str(room_id))
                 logging.info(f"Checking room {room_name} (ID: {room_id}, Sketch ID: {sketch_id}) for messages after {last_processed}")
                 
                 cur.execute("""
-                    SELECT m.content, m.created_at, u.username
+                    SELECT m.id, m.content, m.created_at, u.username
                     FROM messages m
                     JOIN users u ON m.user_id = u.id
                     WHERE m.room_id = %s AND m.created_at > %s::timestamp
@@ -237,23 +279,32 @@ class SecuritySketchOperator:
                 
                 messages = cur.fetchall()
                 if messages:
-                    logging.info(f"Found {len(messages)} new messages in room {room_name}")
-                    messages_by_room[room_id] = {
-                        'name': room_name,
-                        'sketch_id': sketch_id,
-                        'messages': [
-                            {
-                                'content': msg[0],
-                                'timestamp': msg[1].isoformat(),
-                                'username': msg[2]
-                            } for msg in messages
-                        ]
-                    }
-                    self.last_processed_timestamps[str(room_id)] = messages[-1][1].isoformat()
-                    self.save_last_processed_timestamps()
+                    new_messages = []
+                    for msg in messages:
+                        msg_id = str(msg[0])
+                        if not self.is_message_processed(msg_id):
+                            new_messages.append(msg)
+                            self.mark_message_processed(msg_id)
+                    
+                    if new_messages:
+                        logging.info(f"Processing {len(new_messages)} new messages in room {room_name}")
+                        messages_by_room[room_id] = {
+                            'name': room_name,
+                            'sketch_id': sketch_id,
+                            'messages': [
+                                {
+                                    'id': msg[0],
+                                    'content': msg[1],
+                                    'timestamp': msg[2].isoformat(),
+                                    'username': msg[3]
+                                } for msg in new_messages
+                            ]
+                        }
+                        # Update the last processed timestamp in the database
+                        self.update_last_processed_timestamp(str(room_id), new_messages[-1][2])
+                    else:
+                        logging.info(f"No new messages to process in room {room_name}")
 
-            cur.close()
-            conn.close()
             return messages_by_room
 
         except Exception as e:
@@ -305,7 +356,7 @@ class SecuritySketchOperator:
 
         Here are examples of how you would output:
 
-        {{"message": "DNS request to suspicious domain: malicious.ru", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "DNS Activity", "domain": "malicious.ru", "observer_name": "alice"}}
+        {{"message": "Suspicious domain: malicious.ru", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Network Connection", "domain": "malicious.ru", "observer_name": "alice"}}
         {{"message": "Suspicious outbound connection detected to 12.34.56.78 on port 8080", "datetime": "2024-10-16T08:05:00Z", "timestamp_desc": "Network Connection", "dest_ip": "12.34.56.78", "dest_port": "8080", "observer_name": "bob"}}
         {{"message": "Beaconing activity detected to C2 domain: badsite.com", "datetime": "2024-10-16T08:10:00Z", "timestamp_desc": "Network Security", "domain": "badsite.com", "observer_name": "charlie"}}
         {{"message": "Large file transfer (400GB) to external FTP server detected", "datetime": "2024-10-16T08:15:00Z", "timestamp_desc": "Data Loss Prevention", "dest_port": "21", "bytes_sent": "400000000000", "observer_name": "dave"}}    
@@ -369,13 +420,12 @@ class SecuritySketchOperator:
                     logging.info(f"Gemini response: {response_text}")
                     
                     if "Regular chat: no sketch update" not in response_text:
-                        # Split response into lines and validate each as JSON
+                        # Process results as before
                         for line in response_text.split('\n'):
                             line = line.strip()
-                            if line:  # Skip empty lines
+                            if line:
                                 try:
-                                    # Validate JSON
-                                    json.loads(line)
+                                    json.loads(line)  # Validate JSON
                                     results.append(line)
                                     logging.info(f"Added valid JSON result: {line}")
                                 except json.JSONDecodeError as je:
