@@ -326,33 +326,37 @@ io.on('connection', (socket) => {
       const isRoomOwner = isOwner || (userId === room.owner_id);
       console.log('User owner status:', { userId, roomOwnerId: room.owner_id, isRoomOwner });
 
-      socket.emit('room_joined', {
-        messages: messagesResult.rows,
-        activeUsers: activeUsersResult.rows,
-        userId: userId,
-        username: username,
-        roomName: room.name,
-        recoveryKey: recoveryKey,
-        isOwner: isRoomOwner  // Include owner status in response
-      });
-
-      // Broadcast user joined to all clients in the room EXCEPT the sender
-      socket.to(roomId).emit('user_joined', {
-        userId: userId,
-        username: username
-      });
-
-      // Add system message for user joining and broadcast to ALL clients
+      // Create join message
       const joinMessage = {
         content: `${username} joined the investigation`,
         username: 'system',
         timestamp: new Date().toISOString(),
         isSystem: true,
         type: 'user-join',
-        id: `system-${Date.now()}`
+        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       };
-      
-      io.in(roomId).emit('new_message', joinMessage);
+
+      // Add join message to messages array
+      const allMessages = [...messagesResult.rows, joinMessage];
+
+      // Emit room_joined event with all necessary data INCLUDING the join message
+      socket.emit('room_joined', {
+        messages: allMessages,
+        activeUsers: activeUsersResult.rows,
+        userId: userId,
+        username: username,
+        roomName: room.name,
+        recoveryKey: recoveryKey,
+        isOwner: isRoomOwner
+      });
+
+      // Broadcast user joined to all OTHER clients in the room
+      socket.to(roomId).emit('new_message', joinMessage);
+      socket.to(roomId).emit('user_joined', {
+        userId: userId,
+        username: username
+      });
+
     } catch (error) {
       console.error('Error joining room:', error);
       socket.emit('error', { message: 'Failed to join room' });
