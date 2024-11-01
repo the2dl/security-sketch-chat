@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaExternalLinkAlt, FaCopy, FaFileUpload } from 'react-icons/fa';
+import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode } from 'react-icons/fa';
 import { HiOutlineLogout, HiUserAdd } from 'react-icons/hi';
 import ConfirmCloseModal from './modals/ConfirmCloseModal';
 import SecretKeyModal from './modals/SecretKeyModal';
@@ -58,75 +58,107 @@ function ChatRoom() {
   });
 
   const formatMessageContent = (content, username) => {
-    // URL regex pattern
-    const urlRegex = /(https?:\/\/[^\s]+)/g;
-    
-    // First split by mentions, then process URLs in each part
-    const mentionRegex = /@(\w+)@(\w+)/g;
-    const parts = content.split(mentionRegex);
+    // Split content by code blocks first
+    const parts = content.split(/(```[\s\S]*?```|`[^`]+`)/g);
     
     return parts.map((part, index) => {
-      if (index % 3 === 0) {
-        // Process URLs in regular text
-        const urlParts = part.split(urlRegex);
-        return urlParts.map((text, i) => {
-          if (text.match(urlRegex)) {
-            return (
-              <span key={i} className="inline-flex items-center gap-1">
-                <a 
-                  href={text}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="underline hover:opacity-80 transition-opacity"
-                >
-                  {text}
-                </a>
-                <FaExternalLinkAlt className="w-3 h-3 opacity-50" />
-              </span>
-            );
-          }
-          return text;
-        });
-      }
-      
-      // Handle mentions as before
-      if (index % 3 === 1) {
-        const mentionedUsername = part;
-        const teamName = parts[index + 1];
-        const isBot = mentionedUsername.toLowerCase() === 'sketchy';
-        const isActiveUser = activeUsers.some(user => user.username.toLowerCase() === mentionedUsername.toLowerCase());
-        const isMentionedUser = mentionedUsername.toLowerCase() === username.toLowerCase();
-        
-        let className = 'inline-block px-2 py-0.5 rounded-md font-medium ';
-        if (theme === 'corporate') {
-          if (isBot) {
-            className += 'bg-primary/25 text-primary-focus';
-          } else if (isActiveUser) {
-            className += isMentionedUser
-              ? 'bg-primary/30 text-primary-focus'
-              : 'bg-neutral/25 text-neutral';
-          }
-        } else {
-          if (isBot) {
-            className += 'bg-purple-500/20 text-purple-300';
-          } else if (isActiveUser) {
-            className += isMentionedUser
-              ? 'bg-teal-500/20 text-teal-300'
-              : 'bg-slate-300/10 text-slate-300';
-          }
-        }
+      // Handle multi-line code blocks
+      if (part.startsWith('```') && part.endsWith('```')) {
+        const code = part.slice(3, -3);
+        const language = code.split('\n')[0].trim(); // Get potential language identifier
+        const codeContent = language ? code.slice(language.length).trim() : code;
         
         return (
-          <span
-            key={index}
-            className={className}
-          >
-            @{mentionedUsername}@{teamName}
-          </span>
+          <div key={index} className="relative my-3">
+            <div className="absolute -top-2.5 left-3 px-2 py-0.5 rounded-md bg-[#282a36] text-[#bd93f9] text-xs font-mono border border-[#bd93f9]/20 flex items-center gap-1.5">
+              <FaCode className="w-3 h-3" />
+              {language || 'code'}
+            </div>
+            <pre className="bg-[#282a36] border border-[#bd93f9]/20 p-3 pt-4 rounded-lg font-mono text-sm overflow-x-auto text-[#f8f8f2]">
+              <code>{codeContent}</code>
+            </pre>
+          </div>
         );
       }
-      return null;
-    }).filter(Boolean);
+      
+      // Handle inline code
+      if (part.startsWith('`') && part.endsWith('`')) {
+        const code = part.slice(1, -1);
+        return (
+          <code key={index} className="bg-[#282a36] border border-[#bd93f9]/10 px-1.5 py-0.5 rounded font-mono text-sm text-[#f8f8f2]">
+            {code}
+          </code>
+        );
+      }
+      
+      // Process URLs and mentions for non-code parts
+      const urlRegex = /(https?:\/\/[^\s]+)/g;
+      const mentionRegex = /@(\w+)@(\w+)/g;
+      const subParts = part.split(mentionRegex);
+      
+      return subParts.map((subPart, subIndex) => {
+        if (subIndex % 3 === 0) {
+          // Process URLs in regular text
+          const urlParts = subPart.split(urlRegex);
+          return urlParts.map((text, i) => {
+            if (text.match(urlRegex)) {
+              return (
+                <span key={`${index}-${subIndex}-${i}`} className="inline-flex items-center gap-1">
+                  <a 
+                    href={text}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:opacity-80 transition-opacity"
+                  >
+                    {text}
+                  </a>
+                  <FaExternalLinkAlt className="w-3 h-3 opacity-50" />
+                </span>
+              );
+            }
+            return text;
+          });
+        }
+        
+        // Handle mentions as before
+        if (subIndex % 3 === 1) {
+          const mentionedUsername = subPart;
+          const teamName = subParts[subIndex + 1];
+          const isBot = mentionedUsername.toLowerCase() === 'sketchy';
+          const isActiveUser = activeUsers.some(user => user.username.toLowerCase() === mentionedUsername.toLowerCase());
+          const isMentionedUser = mentionedUsername.toLowerCase() === username.toLowerCase();
+          
+          let className = 'inline-block px-2 py-0.5 rounded-md font-medium ';
+          if (theme === 'corporate') {
+            if (isBot) {
+              className += 'bg-primary/25 text-primary-focus';
+            } else if (isActiveUser) {
+              className += isMentionedUser
+                ? 'bg-primary/30 text-primary-focus'
+                : 'bg-neutral/25 text-neutral';
+            }
+          } else {
+            if (isBot) {
+              className += 'bg-purple-500/20 text-purple-300';
+            } else if (isActiveUser) {
+              className += isMentionedUser
+                ? 'bg-teal-500/20 text-teal-300'
+                : 'bg-slate-300/10 text-slate-300';
+            }
+          }
+          
+          return (
+            <span
+              key={`${index}-${subIndex}`}
+              className={className}
+            >
+              @{mentionedUsername}@{teamName}
+            </span>
+          );
+        }
+        return null;
+      }).filter(Boolean);
+    });
   };
 
   const [isRoomActive, setIsRoomActive] = useState(true);
