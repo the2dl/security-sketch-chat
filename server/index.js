@@ -246,12 +246,15 @@ io.on('connection', (socket) => {
       let teamDetails = null;
       if (team) {
         const teamResult = await pool.query(
-          'SELECT id, name FROM teams WHERE id = $1',
+          'SELECT id, name, description FROM teams WHERE id = $1',
           [team]
         );
         if (teamResult.rows[0]) {
-          teamDetails = teamResult.rows[0];
-          console.log('Found team details:', teamDetails);
+          teamDetails = {
+            id: teamResult.rows[0].id,
+            name: teamResult.rows[0].name,
+            description: teamResult.rows[0].description
+          };
         }
       }
       
@@ -319,20 +322,28 @@ io.on('connection', (socket) => {
 
       // Get messages and active users
       const messagesResult = await pool.query(
-        `SELECT m.*, u.username, m.message_type 
+        `SELECT m.*, u.username, m.message_type, t.id as team_id, t.name as team_name 
          FROM messages m 
          JOIN users u ON m.user_id = u.id 
+         LEFT JOIN room_participants rp ON rp.user_id = u.id AND rp.room_id = m.room_id
+         LEFT JOIN teams t ON rp.team_id = t.id
          WHERE m.room_id = $1 
          ORDER BY m.created_at ASC`,
         [roomId]
       );
 
       const activeUsersResult = await pool.query(
-        `SELECT u.id, u.username, t.id as team_id, t.name as team_name
+        `SELECT DISTINCT ON (u.id) 
+           u.id, 
+           u.username,
+           t.id as team_id,
+           t.name as team_name,
+           t.description as team_description
          FROM users u 
          JOIN room_participants rp ON u.id = rp.user_id 
          LEFT JOIN teams t ON rp.team_id = t.id
-         WHERE rp.room_id = $1 AND rp.active = true`,
+         WHERE rp.room_id = $1 AND rp.active = true
+         ORDER BY u.id, rp.joined_at DESC`,
         [roomId]
       );
 
@@ -364,31 +375,42 @@ io.on('connection', (socket) => {
         id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
       };
 
-      // Add join message to messages array
+      // Format messages with team information
       const allMessages = messagesResult.rows.map(msg => ({
         id: msg.id,
         content: msg.content,
         username: msg.username,
         timestamp: msg.created_at,
         messageType: msg.message_type,
-        llm_required: msg.llm_required
+        llm_required: msg.llm_required,
+        team: msg.team_id ? {
+          id: msg.team_id,
+          name: msg.team_name
+        } : null
       }));
 
+      // Add join message with team information
       allMessages.push({
-        content: `${username}@${teamName} joined the investigation`,
+        content: `${username}@${teamDetails?.name || 'sketch'} joined the investigation`,
         username: 'system',
         timestamp: new Date().toISOString(),
         isSystem: true,
         type: 'user-join',
-        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+        team: teamDetails
       });
 
       // Emit room_joined event with all necessary data INCLUDING the join message
       socket.emit('room_joined', {
         messages: allMessages,
         activeUsers: activeUsersResult.rows.map(user => ({
-          ...user,
-          team: { id: user.team_id, name: user.team_name }
+          id: user.id,
+          username: user.username,
+          team: user.team_id ? {
+            id: user.team_id,
+            name: user.team_name,
+            description: user.team_description
+          } : null
         })),
         userId: userId,
         username: username,
@@ -452,7 +474,8 @@ io.on('connection', (socket) => {
                   u.id, 
                   u.username,
                   t.id as team_id,
-                  t.name as team_name
+                  t.name as team_name,
+                  t.description as team_description
                  FROM room_participants rp
                  JOIN users u ON rp.user_id = u.id
                  LEFT JOIN teams t ON rp.team_id = t.id
@@ -466,7 +489,11 @@ io.on('connection', (socket) => {
               io.in(roomId).emit('update_active_users', {
                 activeUsers: activeUsersResult.rows.map(user => ({
                   ...user,
-                  team: user.team_id ? { id: user.team_id, name: user.team_name } : null
+                  team: user.team_id ? {
+                    id: user.team_id,
+                    name: user.team_name,
+                    description: user.team_description
+                  } : null
                 }))
               });
             }
@@ -479,12 +506,25 @@ io.on('connection', (socket) => {
       console.error('Error handling disconnect:', error);
     }
   });
-
   socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType }) => {
     try {
       if (!userId) {
         throw new Error('User ID is required');
       }
+
+      // Get user's team information
+      const teamResult = await pool.query(
+        `SELECT t.id, t.name 
+         FROM room_participants rp 
+         LEFT JOIN teams t ON rp.team_id = t.id 
+         WHERE rp.room_id = $1 AND rp.user_id = $2`,
+        [roomId, userId]
+      );
+
+      const team = teamResult.rows[0] ? {
+        id: teamResult.rows[0].id,
+        name: teamResult.rows[0].name
+      } : null;
 
       // Save message to database with message_type
       const result = await pool.query(
@@ -502,7 +542,10 @@ io.on('connection', (socket) => {
         llm_required
       };
 
-      io.in(roomId).emit('new_message', messageData);
+      io.to(roomId).emit('new_message', {
+        ...messageData,
+        team
+      });
 
     } catch (error) {
       console.error('Error sending message:', error);
@@ -1158,6 +1201,68 @@ app.put('/api/system-prompt', async (req, res) => {
   } catch (error) {
     console.error('Error updating system prompt:', error);
     res.status(500).json({ error: 'Failed to update system prompt' });
+  }
+});
+
+// Add this endpoint before the server.listen() call
+app.get('/api/teams/:id', async (req, res) => {
+  try {
+    const result = await pool.query(
+      `SELECT t.*, 
+        (SELECT COUNT(*) FROM room_participants WHERE team_id = t.id) as member_count
+       FROM teams t 
+       WHERE t.id = $1`,
+      [req.params.id]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: 'Team not found' });
+    }
+
+    // Get team members
+    const membersResult = await pool.query(
+      `SELECT DISTINCT u.id, u.username
+       FROM users u
+       JOIN room_participants rp ON u.id = rp.user_id
+       WHERE rp.team_id = $1`,
+      [req.params.id]
+    );
+
+    const team = {
+      ...result.rows[0],
+      members: membersResult.rows
+    };
+
+    res.json(team);
+  } catch (error) {
+    console.error('Error fetching team details:', error);
+    res.status(500).json({ error: 'Failed to fetch team details' });
+  }
+});
+
+// Add this new endpoint near your other API routes
+app.post('/api/users', async (req, res) => {
+  const { id, username } = req.body;
+  
+  if (!id || !username) {
+    return res.status(400).json({ error: 'Missing required fields' });
+  }
+
+  try {
+    // Create or update user
+    await pool.query(
+      `INSERT INTO users (id, username) 
+       VALUES ($1, $2)
+       ON CONFLICT (id) DO UPDATE 
+       SET username = EXCLUDED.username
+       RETURNING id, username`,
+      [id, username]
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error creating/updating user:', error);
+    res.status(500).json({ error: 'Failed to create/update user' });
   }
 });
 

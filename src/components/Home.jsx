@@ -21,19 +21,40 @@ function Home() {
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [teams, setTeams] = useState([]);
   const [selectedTeam, setSelectedTeam] = useState('');
+  const [selectedTeamDetails, setSelectedTeamDetails] = useState(null);
+  const [showJoinModal, setShowJoinModal] = useState(false);
+  const [joiningRoomId, setJoiningRoomId] = useState(null);
 
   useEffect(() => {
     fetchActiveRooms();
-    const fetchTeams = async () => {
-      try {
-        const teamsData = await api.getTeams();
-        setTeams(teamsData);
-      } catch (error) {
-        console.error('Failed to fetch teams:', error);
-      }
-    };
     fetchTeams();
   }, []);
+
+  const fetchTeams = async () => {
+    try {
+      const teamsData = await api.getTeams();
+      setTeams(teamsData);
+    } catch (error) {
+      console.error('Failed to fetch teams:', error);
+    }
+  };
+
+  useEffect(() => {
+    const fetchTeamDetails = async () => {
+      if (selectedTeam) {
+        try {
+          const teamDetails = await api.getTeamDetails(selectedTeam);
+          setSelectedTeamDetails(teamDetails);
+        } catch (error) {
+          console.error('Failed to fetch team details:', error);
+        }
+      } else {
+        setSelectedTeamDetails(null);
+      }
+    };
+
+    fetchTeamDetails();
+  }, [selectedTeam]);
 
   const fetchActiveRooms = async () => {
     try {
@@ -60,21 +81,16 @@ function Home() {
       setError(null);
       setCreatingSketch(true);
       
-      // Get existing userId or create new one
       const userId = localStorage.getItem('userId') || uuidv4();
-      
-      // Store username and userId in localStorage
       localStorage.setItem('username', username);
       localStorage.setItem('userId', userId);
       
-      // Create room with username
       const room = await api.createRoom(sketchName, userId, username);
       
       if (!room || !room.id || !room.sketch_id) {
         throw new Error('Invalid room data received');
       }
 
-      // Store room-specific userId after room is created
       localStorage.setItem(`userId_${room.id}`, userId);
 
       navigate(`/chat/${room.id}`, { 
@@ -85,8 +101,8 @@ function Home() {
           userId,
           username,
           sketch_id: room.sketch_id,
-          team: selectedTeam,
-          teamName: teams.find(t => t.id === selectedTeam)?.name
+          teamId: selectedTeam,
+          teamDetails: selectedTeamDetails
         } 
       });
     } catch (err) {
@@ -98,20 +114,43 @@ function Home() {
   };
 
   const joinRoom = async (roomId) => {
+    setJoiningRoomId(roomId);
+    setUsername(localStorage.getItem('username') || '');
+    setShowJoinModal(true);
+  };
+
+  const handleJoinRoom = async () => {
+    if (!username.trim() || !selectedTeam) {
+      setError('Username and team are required');
+      return;
+    }
+
     try {
-      const roomDetails = await api.getRoomDetails(roomId);
+      const roomDetails = await api.getRoomDetails(joiningRoomId);
       if (!roomDetails || !roomDetails.id) {
         throw new Error('Invalid room details received');
       }
-      navigate(`/chat/${roomId}`, { 
+
+      const userId = localStorage.getItem('userId') || uuidv4();
+      localStorage.setItem('username', username);
+      localStorage.setItem('userId', userId);
+      localStorage.setItem(`userId_${joiningRoomId}`, userId);
+
+      navigate(`/chat/${joiningRoomId}`, { 
         state: { 
           sketchName: roomDetails.name,
-          isNewRoom: false
+          isNewRoom: false,
+          userId,
+          username,
+          teamId: selectedTeam,
+          teamDetails: selectedTeamDetails
         } 
       });
     } catch (err) {
       setError('Failed to join room');
       console.error(err);
+    } finally {
+      setShowJoinModal(false);
     }
   };
 
@@ -403,6 +442,64 @@ function Home() {
                 ) : (
                   'Create'
                 )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showJoinModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Join Investigation</h3>
+            <div className="form-control gap-4">
+              <div>
+                <label className="label">
+                  <span className="label-text">Your Name</span>
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter your name"
+                  className="input input-bordered w-full"
+                  value={username}
+                  onChange={(e) => setUsername(e.target.value)}
+                />
+              </div>
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Team</span>
+                </label>
+                <select
+                  className="select select-bordered w-full"
+                  value={selectedTeam}
+                  onChange={(e) => setSelectedTeam(e.target.value)}
+                  required
+                >
+                  <option value="">Select a team</option>
+                  {teams.map(team => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            </div>
+            <div className="modal-action">
+              <button 
+                className="btn btn-ghost"
+                onClick={() => {
+                  setShowJoinModal(false);
+                  setJoiningRoomId(null);
+                }}
+              >
+                Cancel
+              </button>
+              <button 
+                className="btn btn-primary"
+                onClick={handleJoinRoom}
+                disabled={!username.trim() || !selectedTeam}
+              >
+                Join
               </button>
             </div>
           </div>

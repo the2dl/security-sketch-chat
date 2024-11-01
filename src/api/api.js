@@ -56,41 +56,59 @@ const initSocket = () => {
 };
 
 const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false, team = null) => {
-  console.log('Joining room:', { roomId, username });
+  console.log('Joining room:', { roomId, username, userId });
   if (!socket) {
     socket = initSocket();
   }
   
   return new Promise((resolve, reject) => {
-    // Explicitly join socket room first
-    socket.emit('join_socket_room', { roomId });
-    
-    socket.once('error', (error) => {
-      console.error('Join room error:', error);
+    // First create/update the user
+    fetch(`${API_URL}/api/users`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': API_KEY
+      },
+      body: JSON.stringify({ 
+        id: userId,
+        username 
+      })
+    })
+    .then(() => {
+      // After user is created, proceed with room join
+      socket.emit('join_socket_room', { roomId });
+      
+      socket.once('error', (error) => {
+        console.error('Join room error:', error);
+        reject(error);
+      });
+
+      socket.once('room_joined', (data) => {
+        console.log('Room joined successfully:', data);
+        if (data.userId) {
+          localStorage.setItem(`userId_${roomId}`, data.userId);
+        }
+        if (data.recoveryKey) {
+          localStorage.setItem(`recoveryKey_${roomId}`, data.recoveryKey);
+        }
+        if (data.team) {
+          localStorage.setItem(`team_${roomId}`, JSON.stringify(data.team));
+        }
+        resolve(data);
+      });
+
+      socket.emit('join_room', { 
+        roomId, 
+        username, 
+        secretKey,
+        userId,
+        isOwner,
+        team
+      });
+    })
+    .catch(error => {
+      console.error('Failed to create/update user:', error);
       reject(error);
-    });
-
-    socket.once('room_joined', (data) => {
-      console.log('Room joined successfully:', data);
-      if (data.userId) {
-        localStorage.setItem(`userId_${roomId}`, data.userId);
-      }
-      if (data.recoveryKey) {
-        localStorage.setItem(`recoveryKey_${roomId}`, data.recoveryKey);
-      }
-      if (data.team) {
-        localStorage.setItem(`team_${roomId}`, JSON.stringify(data.team));
-      }
-      resolve(data);
-    });
-
-    socket.emit('join_room', { 
-      roomId, 
-      username, 
-      secretKey,
-      userId,
-      isOwner,
-      team
     });
   });
 };
@@ -526,15 +544,14 @@ export const api = {
     return response.json();
   },
 
-  setTeamInfo: (teamId, teamName) => {
-    localStorage.setItem('currentTeamId', teamId);
-    localStorage.setItem('currentTeamName', teamName);
-  },
-
-  getTeamInfo: () => {
-    return {
-      id: localStorage.getItem('currentTeamId'),
-      name: localStorage.getItem('currentTeamName')
-    };
-  },
+  // Add new method to get team details
+  getTeamDetails: async (teamId) => {
+    const response = await fetchWithAuth(`${API_URL}/api/teams/${teamId}`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch team details');
+    }
+    
+    return response.json();
+  }
 };

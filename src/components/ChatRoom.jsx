@@ -46,6 +46,17 @@ function ChatRoom() {
 
   const [roomName, setRoomName] = useState('Security Sketch');
 
+  const [showTeamSelect, setShowTeamSelect] = useState(false);
+
+  const [teams, setTeams] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState(() => {
+    if (location.state?.teamDetails) {
+      return location.state.teamDetails;
+    }
+    const storedTeam = localStorage.getItem(`team_${roomId}`);
+    return storedTeam ? JSON.parse(storedTeam) : null;
+  });
+
   const formatMessageContent = (content, username) => {
     const mentionRegex = /@(\w+)/g;
     const parts = content.split(mentionRegex);
@@ -178,9 +189,15 @@ function ChatRoom() {
 
       api.onUpdateActiveUsers(({ activeUsers: updatedUsers }) => {
         console.log('Active users updated:', updatedUsers);
-        // Deduplicate by username
+        // Deduplicate by username and ensure team info is preserved
         const uniqueUsers = Array.from(
-          new Map(updatedUsers.map(user => [user.username, user])).values()
+          new Map(updatedUsers.map(user => [
+            user.username, 
+            {
+              ...user,
+              team: user.team || { name: 'sketch' } // Ensure team object exists
+            }
+          ])).values()
         );
         setActiveUsers(uniqueUsers);
       });
@@ -302,108 +319,58 @@ function ChatRoom() {
     }
   }, [roomId]);
 
-  const [selectedTeam, setSelectedTeam] = useState(() => {
-    const savedTeam = localStorage.getItem(`team_${roomId}`);
-    console.log('Saved team from localStorage:', savedTeam);
-    
-    if (savedTeam) {
-      const parsedTeam = JSON.parse(savedTeam);
-      console.log('Parsed team:', parsedTeam);
-      return parsedTeam;
-    }
-    
-    const currentTeam = api.getTeamInfo();
-    console.log('Current team from api:', currentTeam);
-    return currentTeam.id ? { id: currentTeam.id, name: currentTeam.name } : null;
-  });
-  const [teams, setTeams] = useState([]);
-  const [showTeamSelect, setShowTeamSelect] = useState(false);
-
   useEffect(() => {
     const fetchTeams = async () => {
       try {
-        const response = await api.getTeams();
-        setTeams(response);
+        const teamsData = await api.getTeams();
+        setTeams(teamsData);
       } catch (error) {
         console.error('Error fetching teams:', error);
-        setError('Failed to fetch teams');
       }
     };
+
     fetchTeams();
   }, []);
+
+  const handleTeamSelect = async (team) => {
+    try {
+      const teamDetails = await api.getTeamDetails(team.id);
+      setSelectedTeam(teamDetails);
+    } catch (error) {
+      console.error('Error fetching team details:', error);
+      setError('Failed to load team details');
+    }
+  };
 
   const joinChat = async (e) => {
     e.preventDefault();
     
+    if (!username?.trim()) {
+      setError('Username is required');
+      return;
+    }
+
     if (!selectedTeam && !location.state?.isRecovery) {
       setShowTeamSelect(true);
       return;
     }
 
-    console.log('Joining chat with team:', selectedTeam);
-    
     try {
       setError(null);
       const socket = api.initSocket();
       socket.emit('join_socket_room', { roomId });
       
-      if (location.state?.isRecovery) {
-        console.log('Recovering session with:', location.state);
-        setUserId(location.state.userId);
-        setUsername(location.state.username);
-        setIsRoomOwner(location.state.isOwner);
-        
-        localStorage.setItem(`userId_${roomId}`, location.state.userId);
-        localStorage.setItem(`username_${roomId}`, location.state.username);
-        localStorage.setItem(`secretKey_${roomId}`, secretKey);
-        localStorage.setItem(`isRoomOwner_${roomId}`, location.state.isOwner);
-        
-        await api.joinRoom(
-          roomId,
-          location.state.username,
-          secretKey,
-          location.state.userId,
-          location.state.isOwner,
-          location.state.team
-        );
-      } else if (location.state?.isNewRoom) {
-        console.log('Joining as owner with:', location.state);
-        setUsername(location.state.username);
-        setIsRoomOwner(true);
-        
-        localStorage.setItem(`username_${roomId}`, location.state.username);
-        localStorage.setItem(`secretKey_${roomId}`, secretKey);
-        localStorage.setItem(`isRoomOwner_${roomId}`, 'true');
-        
-        await api.joinRoom(
-          roomId,
-          location.state.username,
-          secretKey,
-          location.state.userId,
-          true,
-          selectedTeam?.id
-        );
-      } else {
-        console.log('Regular join with username:', username);
-        if (!username.trim()) {
-          throw new Error('Username is required');
-        }
-        
-        localStorage.setItem(`username_${roomId}`, username);
-        localStorage.setItem(`secretKey_${roomId}`, secretKey);
-        
-        await api.joinRoom(
-          roomId,
-          username,
-          secretKey,
-          null,
-          false,
-          selectedTeam?.id
-        );
-      }
+      await api.joinRoom(
+        roomId,
+        username.trim(),
+        secretKey,
+        location.state?.userId || userId,
+        location.state?.isOwner || false,
+        selectedTeam?.id
+      );
       
+      localStorage.setItem(`username_${roomId}`, username.trim());
       setIsJoined(true);
-      
     } catch (err) {
       setError(err.message || 'Failed to join room');
       console.error(err);
@@ -803,10 +770,10 @@ function ChatRoom() {
             {teams.map(team => (
               <button
                 key={team.id}
-                onClick={() => {
-                  handleTeamSelect(team);
+                onClick={async () => {
+                  await handleTeamSelect(team);
                   setShowTeamSelect(false);
-                  joinChat({ preventDefault: () => {} }); // Re-trigger join with selected team
+                  joinChat({ preventDefault: () => {} });
                 }}
                 className="btn btn-outline w-full justify-start normal-case"
               >
@@ -824,12 +791,57 @@ function ChatRoom() {
     );
   };
 
-  const handleTeamSelect = (team) => {
-    if (team && team.id) {
-      api.setTeamInfo(team.id, team.name);
-      setSelectedTeam(team);
+  useEffect(() => {
+    const loadTeamDetails = async () => {
+      if (!selectedTeam?.id) return;
+      
+      try {
+        const teamDetails = await api.getTeamDetails(selectedTeam.id);
+        setSelectedTeam(teamDetails);
+        // Store in localStorage for persistence
+        localStorage.setItem(`team_${roomId}`, JSON.stringify(teamDetails));
+      } catch (error) {
+        console.error('Error loading team details:', error);
+      }
+    };
+
+    loadTeamDetails();
+  }, [roomId]);
+
+  const renderHeader = () => (
+    <div className="flex items-center gap-4">
+      <h2 className="card-title text-2xl font-bold">
+        {roomName}
+      </h2>
+      {username && (
+        <div className="badge badge-ghost gap-2">
+          <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
+          {username}@{selectedTeam?.name?.toLowerCase() || 'sketch'}
+        </div>
+      )}
+    </div>
+  );
+
+  const renderInputPrompt = () => (
+    <span className="font-mono text-base-content/70 pt-2.5 text-sm whitespace-nowrap">
+      {username?.toLowerCase() || ''}@{selectedTeam?.name?.toLowerCase() || 'sketch'} ~/{roomName?.toLowerCase()}>
+    </span>
+  );
+
+  useEffect(() => {
+    const storedUsername = localStorage.getItem(`username_${roomId}`);
+    const locationUsername = location.state?.username;
+    
+    if (locationUsername) {
+      setUsername(locationUsername);
+      localStorage.setItem(`username_${roomId}`, locationUsername);
+    } else if (storedUsername) {
+      setUsername(storedUsername);
+    } else if (!username) {
+      // If no username is found, show prompt or redirect
+      navigate('/', { state: { error: 'Username is required' } });
     }
-  };
+  }, [roomId, location.state?.username]);
 
   if (!isJoined) {
     return (
@@ -853,7 +865,7 @@ function ChatRoom() {
                       className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
                     >
                       <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                      {user.team ? `${user.username}@${user.team.name}` : user.username}
+                      {user.username}@{user.team?.name || 'sketch'}
                     </div>
                   ))}
                 </div>
@@ -944,15 +956,7 @@ function ChatRoom() {
       <div className="col-span-3 card bg-base-200 shadow-xl rounded-2xl max-h-[calc(100vh-12rem)] overflow-hidden relative">
         <div className="card-body flex flex-col h-full">
           <div className="flex justify-between items-center">
-            <div className="flex items-center gap-4">
-              <h2 className="card-title text-2xl font-bold">
-                {roomName}
-              </h2>
-              <div className="badge badge-ghost gap-2">
-                <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                {username}@{selectedTeam?.name || 'sketch'}
-              </div>
-            </div>
+            {renderHeader()}
             <div className="flex items-center gap-4">
               {sketchId && (
                 <div className="tooltip tooltip-bottom" data-tip="Open this investigation's timeline in Timesketch">
@@ -1015,9 +1019,7 @@ function ChatRoom() {
                     {msg.username !== username && !msg.isSystem && (
                       <div className="opacity-70 text-xs flex items-center gap-2 mb-1 px-1">
                         <span className="font-medium">
-                          {activeUsers.find(u => u.username === msg.username)?.team
-                            ? `${msg.username}@${activeUsers.find(u => u.username === msg.username).team.name}`
-                            : msg.username}
+                          {msg.username}@{msg.team?.name || activeUsers.find(u => u.username === msg.username)?.team?.name || 'sketch'}
                         </span>
                         <span className="text-base-content/50">
                           {msg.timestamp && !isNaN(new Date(msg.timestamp).getTime())
@@ -1077,9 +1079,7 @@ function ChatRoom() {
           </div>
 
           <form onSubmit={sendMessage} className="flex gap-2 items-start relative">
-            <span className="font-mono text-base-content/70 pt-2.5 text-sm whitespace-nowrap">
-              {username?.toLowerCase()}@{selectedTeam?.name?.toLowerCase() || 'sketch'}  ~/{roomName?.toLowerCase()}>
-            </span>
+            {renderInputPrompt()}
             <div className="flex-1 flex items-start gap-2">
               <div className="relative flex-1 z-40">
                 <textarea
@@ -1150,7 +1150,7 @@ function ChatRoom() {
                           onClick={() => handleMentionClick(user.username)}
                           className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg"
                         >
-                          {user.username}
+                          {user.username}@{user.team?.name || 'sketch'}
                         </button>
                       ))}
                   </div>
