@@ -370,7 +370,9 @@ export const api = {
       throw new Error('Failed to upload file');
     }
 
-    return response.json();
+    const data = await response.json();
+    
+    return data;
   },
 
   getUploadedFiles: async (roomId) => {

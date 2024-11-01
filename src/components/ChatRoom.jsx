@@ -636,6 +636,8 @@ function ChatRoom() {
       formData.append('file', file);
       formData.append('roomId', roomId);
       formData.append('sketchId', sketchId);
+      formData.append('username', username);
+      formData.append('team', selectedTeam?.name || 'sketch');
 
       const response = await api.uploadFile(formData, (progress) => {
         setUploadProgress(progress);
@@ -652,15 +654,6 @@ function ChatRoom() {
       };
 
       setUploadedFiles(prev => [...prev, newFile]);
-      
-      setMessages(prev => [...prev, {
-        content: `${username} uploaded ${file.name}`,
-        username: 'system',
-        timestamp: new Date().toISOString(),
-        isSystem: true,
-        type: 'file-upload'
-      }]);
-
       setUploadProgress(0);
     } catch (error) {
       console.error('Upload failed:', error);

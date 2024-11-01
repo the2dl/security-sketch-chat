@@ -506,8 +506,25 @@ io.on('connection', (socket) => {
       console.error('Error handling disconnect:', error);
     }
   });
-  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType }) => {
+  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType, type }) => {
     try {
+      // Special handling for system messages about file uploads
+      if (messageType === 'system' && type === 'file-upload') {
+        // Just broadcast the message without storing in DB
+        const messageData = {
+          content,
+          username: 'system',
+          timestamp: new Date().toISOString(),
+          roomId,
+          messageType,
+          isSystem: true,
+          type
+        };
+        
+        io.to(roomId).emit('new_message', messageData);
+        return;
+      }
+
       if (!userId) {
         throw new Error('User ID is required');
       }
@@ -949,7 +966,7 @@ app.post('/api/rooms/:roomId/recover', async (req, res) => {
 // Add new endpoints for file handling
 app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req, res) => {
   try {
-    const { roomId, sketchId } = req.body;
+    const { roomId, sketchId, username, team } = req.body;
     const file = req.file;
 
     // Save file metadata to database
@@ -973,6 +990,18 @@ app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req,
         path.extname(file.originalname).substring(1)
       ]
     );
+
+    // Emit file upload message to all users in the room
+    const uploadMessage = {
+      content: `${username}@${team || 'sketch'} uploaded ${file.originalname} - refresh evidence to see it`,
+      username: 'system',
+      timestamp: new Date().toISOString(),
+      isSystem: true,
+      type: 'file-upload',
+      id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    };
+
+    io.to(roomId).emit('new_message', uploadMessage);
 
     res.json({
       fileId: result.rows[0].id,
