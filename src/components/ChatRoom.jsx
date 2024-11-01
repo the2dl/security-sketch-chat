@@ -58,13 +58,38 @@ function ChatRoom() {
   });
 
   const formatMessageContent = (content, username) => {
+    // URL regex pattern
+    const urlRegex = /(https?:\/\/[^\s]+)/g;
+    
+    // First split by mentions, then process URLs in each part
     const mentionRegex = /@(\w+)@(\w+)/g;
     const parts = content.split(mentionRegex);
     
     return parts.map((part, index) => {
       if (index % 3 === 0) {
-        return part;
+        // Process URLs in regular text
+        const urlParts = part.split(urlRegex);
+        return urlParts.map((text, i) => {
+          if (text.match(urlRegex)) {
+            return (
+              <span key={i} className="inline-flex items-center gap-1">
+                <a 
+                  href={text}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="underline hover:opacity-80 transition-opacity"
+                >
+                  {text}
+                </a>
+                <FaExternalLinkAlt className="w-3 h-3 opacity-50" />
+              </span>
+            );
+          }
+          return text;
+        });
       }
+      
+      // Handle mentions as before
       if (index % 3 === 1) {
         const mentionedUsername = part;
         const teamName = parts[index + 1];
