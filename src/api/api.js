@@ -95,7 +95,7 @@ const leaveRoom = (roomId, userId) => {
   socket.emit('leave_room', { roomId, userId });
 };
 
-const sendMessage = ({ roomId, username, content }) => {
+const sendMessage = ({ roomId, username, content, llm_required, messageType }) => {
   return new Promise((resolve, reject) => {
     if (!socket) {
       socket = initSocket();
@@ -111,7 +111,15 @@ const sendMessage = ({ roomId, username, content }) => {
       socket.emit('join_socket_room', { roomId });
     }
 
-    socket.emit('send_message', { roomId, username, content, userId });
+    // Explicitly include messageType in the emission
+    socket.emit('send_message', { 
+      roomId, 
+      username, 
+      content, 
+      userId,
+      llm_required: !!llm_required,
+      messageType: messageType || 'chat'  // Add default value
+    });
     
     socket.once('error', (error) => {
       console.error('Send message error:', error);

@@ -270,7 +270,7 @@ class SecuritySketchOperator:
                 logging.info(f"Checking room {room_name} (ID: {room_id}, Sketch ID: {sketch_id}) for messages after {last_processed}")
                 
                 cur.execute("""
-                    SELECT m.id, m.content, m.created_at, u.username
+                    SELECT m.id, m.content, m.created_at, u.username, m.llm_required
                     FROM messages m
                     JOIN users u ON m.user_id = u.id
                     WHERE m.room_id = %s AND m.created_at > %s::timestamp
@@ -296,7 +296,8 @@ class SecuritySketchOperator:
                                     'id': msg[0],
                                     'content': msg[1],
                                     'timestamp': msg[2].isoformat(),
-                                    'username': msg[3]
+                                    'username': msg[3],
+                                    'llm_required': msg[4]
                                 } for msg in new_messages
                             ]
                         }
@@ -354,6 +355,11 @@ class SecuritySketchOperator:
         prompt_template = '''
         You are a cyber security expert who is working with the tool Timesketch by Google. There is a new interface being created that allow users to talk in "plain english" and you will convert it into the proper timesketch format (.jsonl) to send off to timesketch later.
 
+        IMPORTANT: If a message is marked as "LLM Required", you MUST convert it into Timesketch format, even if it appears to be regular chat. For these messages, make reasonable assumptions about security implications and create appropriate entries.
+
+        For example, if a message marked as "LLM Required" says "we saw bad things", you should create an entry like:
+        {{"message": "Potential security incident reported [T1078]", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Security Alert", "observer_name": "analyst"}}
+
         Important notes about timestamps:
         - If a timestamp is mentioned in the message/file, use that timestamp in the datetime field
         - Only use the current timestamp if no timestamp is provided in the content
@@ -400,10 +406,12 @@ class SecuritySketchOperator:
         There may be times it's just "regular chat" and you don't need to convert anything, you need to make that decision. Your focus should be on turning indicators into timesketch, not worrying about common back and forth. If you decide it's regular chat, write back "Regular chat: no sketch update"
 
         Chat Room: {room_name}
-        Messages:
+        Messages to Process:
         {messages}
 
-        Your response should either be valid JSON lines or "Regular chat: no sketch update".
+        Force Processing Required: {force_process}
+
+        Your response should either be valid JSON lines or "Regular chat: no sketch update" ONLY IF force processing is not required.
         '''
 
         results = []
@@ -414,9 +422,12 @@ class SecuritySketchOperator:
             ])
 
             try:
+                force_process = any(msg['llm_required'] for msg in room_data['messages'])
+                
                 prompt = prompt_template.format(
                     room_name=room_data['name'],
-                    messages=messages_text
+                    messages=messages_text,
+                    force_process=str(force_process)
                 )
 
                 logging.info(f"Sending to Gemini - Room: {room_data['name']}")
@@ -432,11 +443,17 @@ class SecuritySketchOperator:
                     response_text = response.candidates[0].content.parts[0].text.strip()
                     logging.info(f"Gemini response: {response_text}")
                     
-                    if "Regular chat: no sketch update" not in response_text:
+                    # Check if any messages require LLM processing
+                    force_process = any(msg['llm_required'] for msg in room_data['messages'])
+                    
+                    if force_process:
+                        logging.info("Message marked for LLM processing, forcing analysis")
+                    
+                    if "Regular chat: no sketch update" not in response_text or force_process:
                         # Process results as before
                         for line in response_text.split('\n'):
                             line = line.strip()
-                            if line:
+                            if line and line != "Regular chat: no sketch update":  # Skip the "Regular chat" message
                                 try:
                                     json.loads(line)  # Validate JSON
                                     results.append(line)
@@ -445,7 +462,8 @@ class SecuritySketchOperator:
                                     logging.error(f"Invalid JSON line: {line}")
                                     logging.error(f"JSON error: {je}")
                 else:
-                    logging.info("Gemini determined this was regular chat - no security content")
+                    logging.warning("No response from Gemini")
+                    
             except Exception as e:
                 logging.error(f"Error processing room {room_data['name']}: {str(e)}")
                 logging.error("Full error details: ", exc_info=True)

@@ -304,7 +304,7 @@ io.on('connection', (socket) => {
 
       // Get messages and active users
       const messagesResult = await pool.query(
-        `SELECT m.*, u.username 
+        `SELECT m.*, u.username, m.message_type 
          FROM messages m 
          JOIN users u ON m.user_id = u.id 
          WHERE m.room_id = $1 
@@ -337,7 +337,24 @@ io.on('connection', (socket) => {
       };
 
       // Add join message to messages array
-      const allMessages = [...messagesResult.rows, joinMessage];
+      const allMessages = messagesResult.rows.map(msg => ({
+        id: msg.id,
+        content: msg.content,
+        username: msg.username,
+        timestamp: msg.created_at,
+        messageType: msg.message_type,
+        llm_required: msg.llm_required
+      }));
+
+      // Add the join message
+      allMessages.push({
+        content: `${username} joined the investigation`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        type: 'user-join',
+        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      });
 
       // Emit room_joined event with all necessary data INCLUDING the join message
       socket.emit('room_joined', {
@@ -423,21 +440,16 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('send_message', async ({ roomId, username, content, userId }) => {
+  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType }) => {
     try {
       if (!userId) {
         throw new Error('User ID is required');
       }
 
-      // Log room membership before sending
-      const room = io.sockets.adapter.rooms.get(roomId);
-      console.log(`Before sending message to room ${roomId}:`, 
-        room ? Array.from(room) : 'No sockets');
-
-      // Save message to database
+      // Save message to database with message_type
       const result = await pool.query(
-        'INSERT INTO messages (room_id, user_id, content) VALUES ($1, $2, $3) RETURNING id, content, created_at as timestamp',
-        [roomId, userId, content]
+        'INSERT INTO messages (room_id, user_id, content, llm_required, message_type) VALUES ($1, $2, $3, $4, $5) RETURNING id, content, created_at as timestamp',
+        [roomId, userId, content, llm_required === true, messageType]  // Add messageType
       );
 
       const messageData = {
@@ -445,22 +457,13 @@ io.on('connection', (socket) => {
         content,
         username,
         timestamp: result.rows[0].timestamp,
-        roomId
+        roomId,
+        messageType,
+        llm_required
       };
 
-      console.log(`Broadcasting message to room ${roomId}:`, messageData);
-      
-      // Ensure the socket is in the room before broadcasting
-      if (!socket.rooms.has(roomId)) {
-        console.log(`Socket ${socket.id} not in room ${roomId}, rejoining...`);
-        socket.join(roomId);
-      }
-      
-      // Broadcast to ALL clients in the room
       io.in(roomId).emit('new_message', messageData);
-      
-      // Log successful broadcast
-      console.log(`Message broadcast complete to room ${roomId}`);
+
     } catch (error) {
       console.error('Error sending message:', error);
       socket.emit('error', { message: 'Failed to send message' });
