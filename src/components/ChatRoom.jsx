@@ -14,7 +14,8 @@ import ActiveUsersSidebar from './ActiveUsersSidebar';
 import BotMessage from './BotMessage';
 import { FaRobot } from 'react-icons/fa';
 import { processCommand } from './Commands';
-import { FaTerminal } from 'react-icons/fa';
+import { FaTerminal, FaSlash } from 'react-icons/fa';
+import { COMMANDS } from './Commands';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -431,27 +432,30 @@ function ChatRoom() {
   const textareaRef = useRef(null);
 
   const handleInput = (e) => {
-    const textarea = e.target;
-    const text = textarea.value;
-    const cursorPosition = textarea.selectionStart;
+    const value = e.target.value;
+    setMessage(value);
     
-    const wordBeforeCursor = text.slice(0, cursorPosition).split(/\s/).pop();
+    // Show command suggestions when / is typed at the start
+    if (value === '/') {
+      setShowCommandSuggestions(true);
+    } else if (!value.startsWith('/')) {
+      setShowCommandSuggestions(false);
+    }
     
-    if (wordBeforeCursor.startsWith('@')) {
-      const filter = wordBeforeCursor.slice(1).toLowerCase();
-      const showBot = 'sketchy'.includes(filter);
-      
-      setMentionFilter(filter);
-      setShowMentions(showBot || activeUsers.some(user => 
-        user.username.toLowerCase().includes(filter)
-      ));
+    // Existing mention logic
+    if (value.includes('@')) {
+      const lastMention = value.split('@').pop();
+      setMentionFilter(lastMention);
+      setShowMentions(true);
     } else {
       setShowMentions(false);
     }
-    
-    setMessage(text);
-    textarea.style.height = 'auto';
-    textarea.style.height = textarea.scrollHeight + 'px';
+
+    // Adjust textarea height
+    if (textareaRef.current) {
+      textareaRef.current.style.height = 'auto';
+      textareaRef.current.style.height = `${textareaRef.current.scrollHeight}px`;
+    }
   };
 
   const handleMentionClick = (username) => {
@@ -732,6 +736,14 @@ function ChatRoom() {
     }
   };
 
+  const [showCommandSuggestions, setShowCommandSuggestions] = useState(false);
+
+  const handleCommandSelect = (command) => {
+    setMessage(`/${command} `);
+    setShowCommandSuggestions(false);
+    textareaRef.current?.focus();
+  };
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -990,10 +1002,38 @@ function ChatRoom() {
                         e.preventDefault();
                         sendMessage(e);
                       } else if (e.key === 'Escape') {
+                        setShowCommandSuggestions(false);
                         setShowMentions(false);
                       }
                     }}
                   />
+                  
+                  {showCommandSuggestions && (
+                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-base-200 rounded-lg shadow-xl border border-base-300 overflow-hidden">
+                      <div className="px-3 py-2 text-xs text-base-content/70 border-b border-base-300 font-medium">
+                        Available Commands
+                      </div>
+                      {Object.entries(COMMANDS).map(([cmd, details]) => (
+                        <button
+                          key={cmd}
+                          onClick={() => handleCommandSelect(cmd)}
+                          className="w-full px-3 py-2 text-left hover:bg-base-300 flex items-start gap-2 group"
+                        >
+                          <div className="mt-0.5">
+                            <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
+                          </div>
+                          <div>
+                            <div className="flex items-center gap-2">
+                              <span className="font-mono text-primary">/{cmd}</span>
+                            </div>
+                            <div className="text-xs text-base-content/70 mt-0.5">
+                              {details.description}
+                            </div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  )}
                   
                   {showMentions && (
                     <div className="fixed transform -translate-y-full left-auto mb-2 w-48 bg-base-200 rounded-lg shadow-xl border border-base-300 z-50">

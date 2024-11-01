@@ -440,8 +440,15 @@ class SecuritySketchOperator:
                 )
                 
                 if response.candidates:
+                    # Get the response and clean it up
                     response_text = response.candidates[0].content.parts[0].text.strip()
                     logging.info(f"Gemini response: {response_text}")
+                    
+                    # Remove markdown code block formatting
+                    response_text = response_text.replace('```jsonl', '')
+                    response_text = response_text.replace('```json', '')
+                    response_text = response_text.replace('```', '')
+                    response_text = response_text.strip()
                     
                     # Check if any messages require LLM processing
                     force_process = any(msg['llm_required'] for msg in room_data['messages'])
@@ -450,10 +457,9 @@ class SecuritySketchOperator:
                         logging.info("Message marked for LLM processing, forcing analysis")
                     
                     if "Regular chat: no sketch update" not in response_text or force_process:
-                        # Process results as before
                         for line in response_text.split('\n'):
                             line = line.strip()
-                            if line and line != "Regular chat: no sketch update":  # Skip the "Regular chat" message
+                            if line and line != "Regular chat: no sketch update":
                                 try:
                                     json.loads(line)  # Validate JSON
                                     results.append(line)

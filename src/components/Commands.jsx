@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const COMMANDS = {
+export const COMMANDS = {
   include: {
     description: 'Force message to be analyzed by AI',
     handler: (message) => {
