@@ -3,8 +3,9 @@ import axios from 'axios';
 
 let socket = null;
 
-// Add this near the top of the file, after the imports
+// Add these constants at the top of the file
 const API_KEY = process.env.REACT_APP_API_KEY;
+const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
 
 // Add the fetchWithAuth helper function
 const fetchWithAuth = async (url, options = {}) => {
@@ -54,7 +55,7 @@ const initSocket = () => {
   return socket;
 };
 
-const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false) => {
+const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false, team = null) => {
   console.log('Joining room:', { roomId, username });
   if (!socket) {
     socket = initSocket();
@@ -77,6 +78,9 @@ const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false) =
       if (data.recoveryKey) {
         localStorage.setItem(`recoveryKey_${roomId}`, data.recoveryKey);
       }
+      if (data.team) {
+        localStorage.setItem(`team_${roomId}`, JSON.stringify(data.team));
+      }
       resolve(data);
     });
 
@@ -85,7 +89,8 @@ const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false) =
       username, 
       secretKey,
       userId,
-      isOwner
+      isOwner,
+      team
     });
   });
 };
@@ -445,5 +450,91 @@ export const api = {
       console.error('Error refreshing uploaded files:', error);
       throw error;
     }
+  },
+
+  // Add this with your other API methods
+  deleteTeam: async (teamId) => {
+    const response = await fetchWithAuth(`${API_URL}/api/teams/${teamId}`, {
+      method: 'DELETE'
+    });
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to delete team');
+    }
+    
+    return response.json();
+  },
+
+  // Add these new methods to the api object
+  verifyAdminKey: async (key) => {
+    const response = await fetchWithAuth(`${API_URL}/api/admin/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ key })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Invalid admin key');
+    }
+    
+    return response.json();
+  },
+
+  getTeams: async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/teams`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch teams');
+    }
+    
+    return response.json();
+  },
+
+  createTeam: async (teamData) => {
+    const response = await fetchWithAuth(`${API_URL}/api/teams`, {
+      method: 'POST',
+      body: JSON.stringify(teamData)
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to create team');
+    }
+    
+    return response.json();
+  },
+
+  getSystemPrompt: async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/system-prompt`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch system prompt');
+    }
+    
+    return response.json();
+  },
+
+  updateSystemPrompt: async (prompt) => {
+    const response = await fetchWithAuth(`${API_URL}/api/system-prompt`, {
+      method: 'PUT',
+      body: JSON.stringify({ prompt })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to update system prompt');
+    }
+    
+    return response.json();
+  },
+
+  setTeamInfo: (teamId, teamName) => {
+    localStorage.setItem('currentTeamId', teamId);
+    localStorage.setItem('currentTeamName', teamName);
+  },
+
+  getTeamInfo: () => {
+    return {
+      id: localStorage.getItem('currentTeamId'),
+      name: localStorage.getItem('currentTeamName')
+    };
   },
 };

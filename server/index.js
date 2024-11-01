@@ -238,8 +238,23 @@ io.on('connection', (socket) => {
     }
   });
 
-  socket.on('join_room', async ({ roomId, username, userId, secretKey, isOwner }) => {
+  socket.on('join_room', async ({ roomId, username, userId, secretKey, isOwner, team }) => {
     try {
+      console.log('Join room request with team:', team);
+      
+      // Get team details if team ID is provided
+      let teamDetails = null;
+      if (team) {
+        const teamResult = await pool.query(
+          'SELECT id, name FROM teams WHERE id = $1',
+          [team]
+        );
+        if (teamResult.rows[0]) {
+          teamDetails = teamResult.rows[0];
+          console.log('Found team details:', teamDetails);
+        }
+      }
+      
       // Explicitly join the socket room
       socket.join(roomId);
       socket.userData = { roomId, userId, username };
@@ -275,11 +290,11 @@ io.on('connection', (socket) => {
         
         // Update participant with recovery key
         await pool.query(
-          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key)
-           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3)
+          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key, team_id)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3, $4)
            ON CONFLICT (room_id, user_id) 
-           DO UPDATE SET active = true, joined_at = CURRENT_TIMESTAMP, recovery_key = $3`,
-          [roomId, userId, recoveryKey]
+           DO UPDATE SET active = true, joined_at = CURRENT_TIMESTAMP, recovery_key = $3, team_id = $4`,
+          [roomId, userId, recoveryKey, team]
         );
         
       } else {
@@ -294,9 +309,9 @@ io.on('connection', (socket) => {
         );
         
         await pool.query(
-          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key)
-           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3)`,
-          [roomId, newUserId, recoveryKey]
+          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key, team_id)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3, $4)`,
+          [roomId, newUserId, recoveryKey, team]
         );
         
         userId = newUserId;
@@ -313,9 +328,10 @@ io.on('connection', (socket) => {
       );
 
       const activeUsersResult = await pool.query(
-        `SELECT u.id, u.username 
+        `SELECT u.id, u.username, t.id as team_id, t.name as team_name
          FROM users u 
          JOIN room_participants rp ON u.id = rp.user_id 
+         LEFT JOIN teams t ON rp.team_id = t.id
          WHERE rp.room_id = $1 AND rp.active = true`,
         [roomId]
       );
@@ -326,9 +342,21 @@ io.on('connection', (socket) => {
       const isRoomOwner = isOwner || (userId === room.owner_id);
       console.log('User owner status:', { userId, roomOwnerId: room.owner_id, isRoomOwner });
 
-      // Create join message
+      // Get team name if team ID is provided
+      let teamName = 'sketch';
+      if (team) {
+        const teamResult = await pool.query(
+          'SELECT name FROM teams WHERE id = $1',
+          [team]
+        );
+        if (teamResult.rows[0]) {
+          teamName = teamResult.rows[0].name;
+        }
+      }
+
+      // Create join message with team name
       const joinMessage = {
-        content: `${username} joined the investigation`,
+        content: `${username}@${teamName} joined the investigation`,
         username: 'system',
         timestamp: new Date().toISOString(),
         isSystem: true,
@@ -346,9 +374,8 @@ io.on('connection', (socket) => {
         llm_required: msg.llm_required
       }));
 
-      // Add the join message
       allMessages.push({
-        content: `${username} joined the investigation`,
+        content: `${username}@${teamName} joined the investigation`,
         username: 'system',
         timestamp: new Date().toISOString(),
         isSystem: true,
@@ -359,19 +386,24 @@ io.on('connection', (socket) => {
       // Emit room_joined event with all necessary data INCLUDING the join message
       socket.emit('room_joined', {
         messages: allMessages,
-        activeUsers: activeUsersResult.rows,
+        activeUsers: activeUsersResult.rows.map(user => ({
+          ...user,
+          team: { id: user.team_id, name: user.team_name }
+        })),
         userId: userId,
         username: username,
         roomName: room.name,
         recoveryKey: recoveryKey,
-        isOwner: isRoomOwner
+        isOwner: isRoomOwner,
+        team: teamDetails
       });
 
       // Broadcast user joined to all OTHER clients in the room
       socket.to(roomId).emit('new_message', joinMessage);
       socket.to(roomId).emit('user_joined', {
         userId: userId,
-        username: username
+        username: username,
+        team: teamDetails
       });
 
     } catch (error) {
@@ -416,9 +448,14 @@ io.on('connection', (socket) => {
 
               // Get updated active users list
               const activeUsersResult = await pool.query(
-                `SELECT DISTINCT ON (u.id) u.id, u.username
+                `SELECT DISTINCT ON (u.id) 
+                  u.id, 
+                  u.username,
+                  t.id as team_id,
+                  t.name as team_name
                  FROM room_participants rp
                  JOIN users u ON rp.user_id = u.id
+                 LEFT JOIN teams t ON rp.team_id = t.id
                  WHERE rp.room_id = $1 
                  AND rp.active = true
                  AND rp.joined_at > NOW() - INTERVAL '30 seconds'
@@ -427,7 +464,10 @@ io.on('connection', (socket) => {
               );
 
               io.in(roomId).emit('update_active_users', {
-                activeUsers: activeUsersResult.rows
+                activeUsers: activeUsersResult.rows.map(user => ({
+                  ...user,
+                  team: user.team_id ? { id: user.team_id, name: user.team_name } : null
+                }))
               });
             }
           } catch (error) {
@@ -650,14 +690,26 @@ app.get('/api/health', async (req, res) => {
 app.get('/api/rooms/:roomId/users', async (req, res) => {
   try {
     const activeUsersResult = await pool.query(
-      `SELECT DISTINCT ON (u.username) u.id, u.username
+      `SELECT DISTINCT ON (u.username) 
+        u.id, 
+        u.username,
+        t.id as team_id,
+        t.name as team_name
        FROM room_participants rp
        JOIN users u ON rp.user_id = u.id
+       LEFT JOIN teams t ON rp.team_id = t.id
        WHERE rp.room_id = $1 AND rp.active = true
        ORDER BY u.username, rp.joined_at DESC`,
       [req.params.roomId]
     );
-    res.json(activeUsersResult.rows);
+
+    // Format the response to match the socket format
+    const formattedUsers = activeUsersResult.rows.map(user => ({
+      ...user,
+      team: user.team_id ? { id: user.team_id, name: user.team_name } : null
+    }));
+
+    res.json(formattedUsers);
   } catch (error) {
     console.error('Error fetching active users:', error);
     res.status(500).json({ error: 'Failed to fetch active users' });
@@ -994,10 +1046,126 @@ app.get('/api/files/:roomId/refresh', validateApiKey, async (req, res) => {
   }
 });
 
+// Generate initial admin key if none exists
+const initializeAdminKey = async () => {
+  try {
+    const result = await pool.query('SELECT admin_key FROM platform_settings LIMIT 1');
+    if (result.rows.length === 0) {
+      const adminKey = crypto.randomBytes(32).toString('hex');
+      await pool.query(
+        'INSERT INTO platform_settings (admin_key) VALUES ($1)',
+        [adminKey]
+      );
+      console.log('Initial admin key generated:', adminKey);
+      return adminKey;
+    }
+    return result.rows[0].admin_key;
+  } catch (error) {
+    console.error('Error initializing admin key:', error);
+    throw error;
+  }
+};
+
+// Call this when server starts
+initializeAdminKey().then(key => {
+  console.log('Admin key verified/created');
+}).catch(console.error);
+
+// Verify admin key
+app.post('/api/admin/verify', async (req, res) => {
+  try {
+    const { key } = req.body;
+    const result = await pool.query(
+      'SELECT admin_key FROM platform_settings WHERE admin_key = $1',
+      [key]
+    );
+    res.json({ valid: result.rows.length > 0 });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to verify admin key' });
+  }
+});
+
+// CRUD endpoints for teams
+app.get('/api/teams', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT * FROM teams ORDER BY name');
+    res.json(result.rows);
+  } catch (error) {
+    console.error('Error fetching teams:', error);
+    res.status(500).json({ error: 'Failed to fetch teams' });
+  }
+});
+
+app.post('/api/teams', async (req, res) => {
+  try {
+    const { name, description } = req.body;
+    const result = await pool.query(
+      'INSERT INTO teams (name, description) VALUES ($1, $2) RETURNING *',
+      [name, description]
+    );
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error creating team:', error);
+    res.status(500).json({ error: 'Failed to create team' });
+  }
+});
+
+app.delete('/api/teams/:id', async (req, res) => {
+  try {
+    // First check if team is in use
+    const usageCheck = await pool.query(
+      'SELECT COUNT(*) FROM users WHERE team_id = $1',
+      [req.params.id]
+    );
+
+    if (parseInt(usageCheck.rows[0].count) > 0) {
+      return res.status(400).json({ 
+        error: 'Cannot delete team that has associated users' 
+      });
+    }
+
+    await pool.query(
+      'DELETE FROM teams WHERE id = $1',
+      [req.params.id]
+    );
+    
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error deleting team:', error);
+    res.status(500).json({ error: 'Failed to delete team' });
+  }
+});
+
+// System prompt endpoints
+app.get('/api/system-prompt', async (req, res) => {
+  try {
+    const result = await pool.query('SELECT system_prompt FROM platform_settings LIMIT 1');
+    res.json({ prompt: result.rows[0]?.system_prompt || '' });
+  } catch (error) {
+    console.error('Error fetching system prompt:', error);
+    res.status(500).json({ error: 'Failed to fetch system prompt' });
+  }
+});
+
+app.put('/api/system-prompt', async (req, res) => {
+  try {
+    const { prompt } = req.body;
+    await pool.query(
+      'UPDATE platform_settings SET system_prompt = $1, updated_at = CURRENT_TIMESTAMP',
+      [prompt]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating system prompt:', error);
+    res.status(500).json({ error: 'Failed to update system prompt' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   await testDatabaseConnection();
+  await setupDatabase();
 });
 
 // Add pool error handler
@@ -1026,6 +1194,35 @@ function generateSecureKey(length = 12) {
     // Fallback to a simpler method if crypto fails
     return Math.random().toString(36).slice(2) + 
            Math.random().toString(36).slice(2);
+  }
+}
+
+// Add this to your database initialization or as a separate setup script
+async function setupDatabase() {
+  try {
+    const client = await pool.connect();
+    
+    // Add team_id column if it doesn't exist
+    await client.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'room_participants' 
+          AND column_name = 'team_id'
+        ) THEN 
+          ALTER TABLE room_participants 
+          ADD COLUMN team_id INTEGER REFERENCES teams(id);
+        END IF;
+      END $$;
+    `);
+
+    console.log('Database schema updated successfully');
+    await client.release();
+  } catch (err) {
+    console.error('Error updating database schema:', err);
+    process.exit(1);
   }
 }
 

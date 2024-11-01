@@ -19,9 +19,20 @@ function Home() {
   const [selectedRoom, setSelectedRoom] = useState(null);
   const [username, setUsername] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
+  const [teams, setTeams] = useState([]);
+  const [selectedTeam, setSelectedTeam] = useState('');
 
   useEffect(() => {
     fetchActiveRooms();
+    const fetchTeams = async () => {
+      try {
+        const teamsData = await api.getTeams();
+        setTeams(teamsData);
+      } catch (error) {
+        console.error('Failed to fetch teams:', error);
+      }
+    };
+    fetchTeams();
   }, []);
 
   const fetchActiveRooms = async () => {
@@ -43,7 +54,7 @@ function Home() {
   };
 
   const createNewSketch = async () => {
-    if (!sketchName.trim() || !username.trim()) return;
+    if (!sketchName.trim() || !username.trim() || !selectedTeam) return;
     
     try {
       setError(null);
@@ -73,7 +84,9 @@ function Home() {
           isNewRoom: true,
           userId,
           username,
-          sketch_id: room.sketch_id
+          sketch_id: room.sketch_id,
+          team: selectedTeam,
+          teamName: teams.find(t => t.id === selectedTeam)?.name
         } 
       });
     } catch (err) {
@@ -354,6 +367,24 @@ function Home() {
                   onChange={(e) => setUsername(e.target.value)}
                 />
               </div>
+              <div className="form-control">
+                <label className="label">
+                  <span className="label-text">Team</span>
+                </label>
+                <select
+                  className="select select-bordered w-full"
+                  value={selectedTeam}
+                  onChange={(e) => setSelectedTeam(e.target.value)}
+                  required
+                >
+                  <option value="">Select a team</option>
+                  {teams.map(team => (
+                    <option key={team.id} value={team.id}>
+                      {team.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
             </div>
             <div className="modal-action">
               <button 
@@ -365,7 +396,7 @@ function Home() {
               <button 
                 className="btn btn-primary"
                 onClick={createNewSketch}
-                disabled={!sketchName.trim() || !username.trim() || creatingSketch}
+                disabled={!sketchName.trim() || !username.trim() || !selectedTeam || creatingSketch}
               >
                 {creatingSketch ? (
                   <span className="loading loading-spinner loading-sm"></span>

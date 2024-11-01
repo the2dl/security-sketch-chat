@@ -128,7 +128,8 @@ function ChatRoom() {
         userId: newUserId, 
         roomName: newRoomName, 
         username: newUsername,
-        recoveryKey: newRecoveryKey 
+        recoveryKey: newRecoveryKey,
+        team: userTeam 
       }) => {
         console.log('Room joined, active users:', roomUsers);
         
@@ -156,6 +157,12 @@ function ChatRoom() {
           setShowRecoveryKeyModal(true);
           localStorage.setItem(`hasShownRecoveryKey_${roomId}`, 'true');
         }
+        
+        if (userTeam) {
+          console.log('Setting team:', userTeam);
+          setSelectedTeam(userTeam);
+          localStorage.setItem(`team_${roomId}`, JSON.stringify(userTeam));
+        }
       });
 
       api.onUserJoined((user, updatedActiveUsers) => {
@@ -178,13 +185,13 @@ function ChatRoom() {
         setActiveUsers(uniqueUsers);
       });
 
-      api.onUserLeft(({ userId, username }) => {
+      api.onUserLeft(({ userId, username, team }) => {
         console.log('User left:', username);
         setActiveUsers(prevUsers => 
           prevUsers.filter(u => u.username !== username)
         );
         setMessages(prev => [...prev, {
-          content: `${username} left the chat`,
+          content: `${username}@${team?.name || 'sketch'} left the chat`,
           username: 'system',
           timestamp: new Date().toISOString(),
           isSystem: true
@@ -295,17 +302,49 @@ function ChatRoom() {
     }
   }, [roomId]);
 
+  const [selectedTeam, setSelectedTeam] = useState(() => {
+    const savedTeam = localStorage.getItem(`team_${roomId}`);
+    console.log('Saved team from localStorage:', savedTeam);
+    
+    if (savedTeam) {
+      const parsedTeam = JSON.parse(savedTeam);
+      console.log('Parsed team:', parsedTeam);
+      return parsedTeam;
+    }
+    
+    const currentTeam = api.getTeamInfo();
+    console.log('Current team from api:', currentTeam);
+    return currentTeam.id ? { id: currentTeam.id, name: currentTeam.name } : null;
+  });
+  const [teams, setTeams] = useState([]);
+  const [showTeamSelect, setShowTeamSelect] = useState(false);
+
+  useEffect(() => {
+    const fetchTeams = async () => {
+      try {
+        const response = await api.getTeams();
+        setTeams(response);
+      } catch (error) {
+        console.error('Error fetching teams:', error);
+        setError('Failed to fetch teams');
+      }
+    };
+    fetchTeams();
+  }, []);
+
   const joinChat = async (e) => {
     e.preventDefault();
-    console.log('Joining chat with state:', location.state);
+    
+    if (!selectedTeam && !location.state?.isRecovery) {
+      setShowTeamSelect(true);
+      return;
+    }
+
+    console.log('Joining chat with team:', selectedTeam);
     
     try {
       setError(null);
-      
-      // Get socket instance from api
       const socket = api.initSocket();
-      
-      // Join the socket room immediately when connecting
       socket.emit('join_socket_room', { roomId });
       
       if (location.state?.isRecovery) {
@@ -324,7 +363,8 @@ function ChatRoom() {
           location.state.username,
           secretKey,
           location.state.userId,
-          location.state.isOwner
+          location.state.isOwner,
+          location.state.team
         );
       } else if (location.state?.isNewRoom) {
         console.log('Joining as owner with:', location.state);
@@ -340,7 +380,8 @@ function ChatRoom() {
           location.state.username,
           secretKey,
           location.state.userId,
-          true
+          true,
+          selectedTeam?.id
         );
       } else {
         console.log('Regular join with username:', username);
@@ -351,7 +392,14 @@ function ChatRoom() {
         localStorage.setItem(`username_${roomId}`, username);
         localStorage.setItem(`secretKey_${roomId}`, secretKey);
         
-        await api.joinRoom(roomId, username, secretKey);
+        await api.joinRoom(
+          roomId,
+          username,
+          secretKey,
+          null,
+          false,
+          selectedTeam?.id
+        );
       }
       
       setIsJoined(true);
@@ -744,6 +792,45 @@ function ChatRoom() {
     textareaRef.current?.focus();
   };
 
+  const renderTeamSelect = () => {
+    if (!showTeamSelect) return null;
+
+    return (
+      <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="bg-base-200 p-6 rounded-xl shadow-xl max-w-md w-full">
+          <h3 className="text-lg font-bold mb-4">Select Your Team</h3>
+          <div className="space-y-2">
+            {teams.map(team => (
+              <button
+                key={team.id}
+                onClick={() => {
+                  handleTeamSelect(team);
+                  setShowTeamSelect(false);
+                  joinChat({ preventDefault: () => {} }); // Re-trigger join with selected team
+                }}
+                className="btn btn-outline w-full justify-start normal-case"
+              >
+                {team.name}
+                {team.description && (
+                  <span className="text-xs text-base-content/70 ml-2">
+                    - {team.description}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const handleTeamSelect = (team) => {
+    if (team && team.id) {
+      api.setTeamInfo(team.id, team.name);
+      setSelectedTeam(team);
+    }
+  };
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -766,7 +853,7 @@ function ChatRoom() {
                       className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
                     >
                       <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-                      {user.username}
+                      {user.team ? `${user.username}@${user.team.name}` : user.username}
                     </div>
                   ))}
                 </div>
@@ -824,6 +911,7 @@ function ChatRoom() {
             </div>
           </div>
         </div>
+        {renderTeamSelect()}
       </div>
     );
   }
@@ -834,6 +922,7 @@ function ChatRoom() {
         <ActiveUsersSidebar 
           activeUsers={activeUsers}
           username={username}
+          selectedTeam={selectedTeam}
           uploadedFiles={uploadedFiles}
           uploadProgress={uploadProgress}
           onFileUpload={handleFileUpload}
@@ -861,7 +950,7 @@ function ChatRoom() {
               </h2>
               <div className="badge badge-ghost gap-2">
                 <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
-                {username}
+                {username}@{selectedTeam?.name || 'sketch'}
               </div>
             </div>
             <div className="flex items-center gap-4">
@@ -925,7 +1014,11 @@ function ChatRoom() {
                   >
                     {msg.username !== username && !msg.isSystem && (
                       <div className="opacity-70 text-xs flex items-center gap-2 mb-1 px-1">
-                        <span className="font-medium">{msg.username}</span>
+                        <span className="font-medium">
+                          {activeUsers.find(u => u.username === msg.username)?.team
+                            ? `${msg.username}@${activeUsers.find(u => u.username === msg.username).team.name}`
+                            : msg.username}
+                        </span>
                         <span className="text-base-content/50">
                           {msg.timestamp && !isNaN(new Date(msg.timestamp).getTime())
                             ? new Date(msg.timestamp).toLocaleTimeString()
@@ -983,111 +1076,109 @@ function ChatRoom() {
             <div ref={messagesEndRef} />
           </div>
 
-          <form onSubmit={sendMessage} className="mt-4">
-            <div className="flex gap-2 items-start relative">
-              <span className="font-mono text-base-content/70 pt-2.5 text-sm whitespace-nowrap">
-                {username.toLowerCase()}@sketch  ~/{roomName.toLowerCase()}>
-              </span>
-              <div className="flex-1 flex items-start gap-2">
-                <div className="relative flex-1 z-40">
-                  <textarea
-                    ref={textareaRef}
-                    rows="1"
-                    placeholder="Type your message..."
-                    className="w-full bg-transparent font-mono text-sm focus:outline-none resize-none overflow-hidden pt-2.5"
-                    value={message}
-                    onChange={handleInput}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter' && !e.shiftKey) {
-                        e.preventDefault();
-                        sendMessage(e);
-                      } else if (e.key === 'Escape') {
-                        setShowCommandSuggestions(false);
-                        setShowMentions(false);
-                      }
-                    }}
-                  />
-                  
-                  {showCommandSuggestions && (
-                    <div className="absolute bottom-full left-0 mb-2 w-64 bg-base-200 rounded-lg shadow-xl border border-base-300 overflow-hidden">
-                      <div className="px-3 py-2 text-xs text-base-content/70 border-b border-base-300 font-medium">
-                        Available Commands
-                      </div>
-                      {Object.entries(COMMANDS).map(([cmd, details]) => (
+          <form onSubmit={sendMessage} className="flex gap-2 items-start relative">
+            <span className="font-mono text-base-content/70 pt-2.5 text-sm whitespace-nowrap">
+              {username?.toLowerCase()}@{selectedTeam?.name?.toLowerCase() || 'sketch'}  ~/{roomName?.toLowerCase()}>
+            </span>
+            <div className="flex-1 flex items-start gap-2">
+              <div className="relative flex-1 z-40">
+                <textarea
+                  ref={textareaRef}
+                  rows="1"
+                  placeholder="Type your message..."
+                  className="w-full bg-transparent font-mono text-sm focus:outline-none resize-none overflow-hidden pt-2.5"
+                  value={message}
+                  onChange={handleInput}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      sendMessage(e);
+                    } else if (e.key === 'Escape') {
+                      setShowCommandSuggestions(false);
+                      setShowMentions(false);
+                    }
+                  }}
+                />
+                
+                {showCommandSuggestions && (
+                  <div className="absolute bottom-full left-0 mb-2 w-64 bg-base-200 rounded-lg shadow-xl border border-base-300 overflow-hidden">
+                    <div className="px-3 py-2 text-xs text-base-content/70 border-b border-base-300 font-medium">
+                      Available Commands
+                    </div>
+                    {Object.entries(COMMANDS).map(([cmd, details]) => (
+                      <button
+                        key={cmd}
+                        onClick={() => handleCommandSelect(cmd)}
+                        className="w-full px-3 py-2 text-left hover:bg-base-300 flex items-start gap-2 group"
+                      >
+                        <div className="mt-0.5">
+                          <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
+                        </div>
+                        <div>
+                          <div className="flex items-center gap-2">
+                            <span className="font-mono text-primary">/{cmd}</span>
+                          </div>
+                          <div className="text-xs text-base-content/70 mt-0.5">
+                            {details.description}
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                )}
+                
+                {showMentions && (
+                  <div className="fixed transform -translate-y-full left-auto mb-2 w-48 bg-base-200 rounded-lg shadow-xl border border-base-300 z-50">
+                    {'sketchy'.includes(mentionFilter.toLowerCase()) && (
+                      <button
+                        onClick={() => handleMentionClick('sketchy')}
+                        className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg flex items-center gap-2 text-purple-400"
+                      >
+                        <FaRobot className="w-3.5 h-3.5" />
+                        sketchy
+                      </button>
+                    )}
+                    
+                    {activeUsers
+                      .filter(user => 
+                        user.username.toLowerCase().includes(mentionFilter) &&
+                        user.username.toLowerCase() !== username.toLowerCase()
+                      )
+                      .map(user => (
                         <button
-                          key={cmd}
-                          onClick={() => handleCommandSelect(cmd)}
-                          className="w-full px-3 py-2 text-left hover:bg-base-300 flex items-start gap-2 group"
+                          key={user.username}
+                          onClick={() => handleMentionClick(user.username)}
+                          className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg"
                         >
-                          <div className="mt-0.5">
-                            <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
-                          </div>
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-mono text-primary">/{cmd}</span>
-                            </div>
-                            <div className="text-xs text-base-content/70 mt-0.5">
-                              {details.description}
-                            </div>
-                          </div>
+                          {user.username}
                         </button>
                       ))}
-                    </div>
-                  )}
-                  
-                  {showMentions && (
-                    <div className="fixed transform -translate-y-full left-auto mb-2 w-48 bg-base-200 rounded-lg shadow-xl border border-base-300 z-50">
-                      {'sketchy'.includes(mentionFilter.toLowerCase()) && (
-                        <button
-                          onClick={() => handleMentionClick('sketchy')}
-                          className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg flex items-center gap-2 text-purple-400"
-                        >
-                          <FaRobot className="w-3.5 h-3.5" />
-                          sketchy
-                        </button>
-                      )}
-                      
-                      {activeUsers
-                        .filter(user => 
-                          user.username.toLowerCase().includes(mentionFilter) &&
-                          user.username.toLowerCase() !== username.toLowerCase()
-                        )
-                        .map(user => (
-                          <button
-                            key={user.username}
-                            onClick={() => handleMentionClick(user.username)}
-                            className="w-full px-4 py-2 text-left hover:bg-base-300 first:rounded-t-lg last:rounded-b-lg"
-                          >
-                            {user.username}
-                          </button>
-                        ))}
-                    </div>
-                  )}
-                  
-                  {showEmojiPicker && (
-                    <div className="absolute bottom-full right-0 mb-2 z-50">
-                      <Picker 
-                        data={data} 
-                        onEmojiSelect={onEmojiSelect}
-                        theme={theme === 'black' ? 'dark' : 'light'}
-                      />
-                    </div>
-                  )}
-                </div>
-                <button 
-                  type="button"
-                  onClick={() => setShowEmojiPicker(!showEmojiPicker)}
-                  className="font-mono text-sm text-base-content/50 hover:text-base-content pt-2.5"
-                >
-                  😊
-                </button>
-                <button 
-                  type="submit"
-                  className="font-mono text-sm text-base-content/50 hover:text-base-content pt-2.5"
-                >
-                  [send]
-                </button>
+                  </div>
+                )}
+                
+                {showEmojiPicker && (
+                  <div className="absolute bottom-full right-0 mb-2 z-50">
+                    <Picker 
+                      data={data} 
+                      onEmojiSelect={onEmojiSelect}
+                      theme={theme === 'black' ? 'dark' : 'light'}
+                    />
+                  </div>
+                )}
               </div>
+              <button 
+                type="button"
+                onClick={() => setShowEmojiPicker(!showEmojiPicker)}
+                className="font-mono text-sm text-base-content/50 hover:text-base-content pt-2.5"
+              >
+                😊
+              </button>
+              <button 
+                type="submit"
+                className="font-mono text-sm text-base-content/50 hover:text-base-content pt-2.5"
+              >
+                [send]
+              </button>
             </div>
           </form>
         </div>

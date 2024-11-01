@@ -7,6 +7,7 @@ import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
 function ActiveUsersSidebar({ 
   activeUsers, 
   username,
+  selectedTeam,
   uploadedFiles,
   uploadProgress,
   onFileUpload,
@@ -55,6 +56,13 @@ function ActiveUsersSidebar({
     return 'badge badge-primary bg-purple-500/10 border-purple-500/20 text-purple-300 gap-2 p-3 rounded-lg';
   };
 
+  const formatUserDisplay = (user) => {
+    if (user.team) {
+      return `${user.username}@${user.team.name}`;
+    }
+    return user.username;
+  };
+
   return (
     <div className="flex flex-col h-full">
       {/* Active Users Section */}
@@ -69,7 +77,7 @@ function ActiveUsersSidebar({
           {/* Bot user - always shown first */}
           <div className={getBotBadgeStyles()}>
             <FaRobot className="w-3.5 h-3.5" />
-            sketchy
+            sketchy@system
           </div>
           
           {/* Existing user badges */}
@@ -79,7 +87,7 @@ function ActiveUsersSidebar({
               className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
             >
               <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-              {user.username}
+              {formatUserDisplay(user)}
             </div>
           ))}
         </div>

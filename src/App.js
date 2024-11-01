@@ -3,6 +3,7 @@ import { ThemeProvider } from './context/ThemeContext';
 import Navbar from './components/Navbar';
 import Home from './components/Home';
 import ChatRoom from './components/ChatRoom'; // This now imports from the index.jsx in ChatRoom folder
+import Admin from './components/Admin';
 
 function App() {
   return (
@@ -14,6 +15,7 @@ function App() {
             <Routes>
               <Route path="/" element={<Home />} />
               <Route path="/chat/:roomId" element={<ChatRoom />} />
+              <Route path="/admin" element={<Admin />} />
             </Routes>
           </div>
         </div>

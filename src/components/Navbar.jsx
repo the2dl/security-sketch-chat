@@ -43,6 +43,12 @@ function Navbar({ isRoomOwner, roomId }) {
           />
         </div>
         <div className="flex-none gap-3">
+          <button 
+            onClick={() => navigate('/admin')}
+            className="btn btn-ghost btn-sm"
+          >
+            Admin
+          </button>
           {isInChatRoom && isRoomOwner && (
             <button 
               onClick={handleEndChat}
