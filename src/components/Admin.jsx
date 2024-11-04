@@ -126,24 +126,33 @@ function Admin() {
 
   if (!isAuthorized) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] p-4">
-        <div className="card bg-base-200 shadow-xl w-full max-w-md">
-          <div className="card-body">
-            <h2 className="card-title">Admin Access</h2>
-            {error && <div className="alert alert-error">{error}</div>}
-            <input
-              type="password"
-              placeholder="Enter admin key"
-              className="input input-bordered w-full"
-              value={adminKey}
-              onChange={(e) => setAdminKey(e.target.value)}
-            />
-            <button 
-              className="btn btn-primary"
-              onClick={() => verifyAdminKey(adminKey)}
-            >
-              Verify Key
-            </button>
+      <div className="hero min-h-[calc(100vh-8rem)]">
+        <div className="hero-content flex-col lg:flex-row-reverse">
+          <div className="text-center lg:text-left lg:ml-8">
+            <h1 className="text-5xl font-bold">Admin Access</h1>
+            <p className="py-6">Please enter your admin key to access the platform administration panel.</p>
+          </div>
+          <div className="card flex-shrink-0 w-full max-w-sm shadow-2xl bg-base-200">
+            <div className="card-body">
+              {error && <div className="alert alert-error">{error}</div>}
+              <div className="form-control">
+                <input
+                  type="password"
+                  placeholder="Enter admin key"
+                  className="input input-bordered"
+                  value={adminKey}
+                  onChange={(e) => setAdminKey(e.target.value)}
+                />
+              </div>
+              <div className="form-control mt-6">
+                <button 
+                  className="btn btn-primary"
+                  onClick={() => verifyAdminKey(adminKey)}
+                >
+                  Verify Key
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
@@ -151,54 +160,68 @@ function Admin() {
   }
 
   return (
-    <div className="container mx-auto p-4">
-      <h1 className="text-2xl font-bold mb-6">Platform Administration</h1>
+    <div className="container mx-auto p-4 max-w-5xl">
+      <h1 className="text-3xl font-bold mb-8">Platform Administration</h1>
       
-      {error && <div className="alert alert-error mb-4">{error}</div>}
+      {error && <div className="alert alert-error mb-6">{error}</div>}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      <div className="space-y-8">
         {/* Teams Management */}
         <div className="card bg-base-200 shadow-xl">
           <div className="card-body">
-            <h2 className="card-title">Teams Management</h2>
+            <div className="flex justify-between items-center">
+              <h2 className="card-title text-2xl">Teams Management</h2>
+              <div className="badge badge-primary">{teams.length} Teams</div>
+            </div>
             
-            <form onSubmit={handleAddTeam} className="space-y-4">
+            <div className="divider"></div>
+            
+            <form onSubmit={handleAddTeam} className="flex gap-4 mb-6">
               <input
                 type="text"
                 placeholder="Team Name"
-                className="input input-bordered w-full"
+                className="input input-bordered flex-1"
                 value={newTeam.name}
                 onChange={(e) => setNewTeam({...newTeam, name: e.target.value})}
               />
               <input
                 type="text"
                 placeholder="Description"
-                className="input input-bordered w-full"
+                className="input input-bordered flex-1"
                 value={newTeam.description}
                 onChange={(e) => setNewTeam({...newTeam, description: e.target.value})}
               />
-              <button type="submit" className="btn btn-primary w-full">
+              <button type="submit" className="btn btn-primary">
                 Add Team
               </button>
             </form>
-
-            <div className="divider">Current Teams</div>
             
-            <div className="space-y-2">
-              {teams.map(team => (
-                <div key={team.id} className="flex justify-between items-center p-3 bg-base-300 rounded-lg">
-                  <div>
-                    <h3 className="font-semibold">{team.name}</h3>
-                    <p className="text-sm text-base-content/70">{team.description}</p>
-                  </div>
-                  <button 
-                    className="btn btn-ghost btn-sm"
-                    onClick={() => setTeamToDelete(team)}
-                  >
-                    Delete
-                  </button>
-                </div>
-              ))}
+            <div className="overflow-x-auto">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Team Name</th>
+                    <th>Description</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {teams.map(team => (
+                    <tr key={team.id}>
+                      <td className="font-medium">{team.name}</td>
+                      <td className="text-base-content/70">{team.description}</td>
+                      <td>
+                        <button 
+                          className="btn btn-ghost btn-sm text-error"
+                          onClick={() => setTeamToDelete(team)}
+                        >
+                          Delete
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </div>
         </div>
@@ -206,15 +229,15 @@ function Admin() {
         {/* AI Prompts Management */}
         <div className="card bg-base-200 shadow-xl">
           <div className="card-body">
-            <h2 className="card-title">AI Prompts Management</h2>
+            <h2 className="card-title text-2xl mb-6">AI Prompts Management</h2>
             
-            <form onSubmit={handleUpdatePrompts} className="space-y-4">
-              <div>
+            <form onSubmit={handleUpdatePrompts} className="space-y-6">
+              <div className="form-control">
                 <label className="label">
-                  <span className="label-text">Evidence Processor Prompt</span>
+                  <span className="label-text text-lg font-medium">Evidence Processor Prompt</span>
                 </label>
                 <textarea
-                  className="textarea textarea-bordered w-full h-48"
+                  className="textarea textarea-bordered min-h-[200px] font-mono text-sm"
                   placeholder="Enter evidence processor prompt"
                   value={prompts.evidence_processor_prompt}
                   onChange={(e) => setPrompts({
@@ -224,12 +247,12 @@ function Admin() {
                 />
               </div>
 
-              <div>
+              <div className="form-control">
                 <label className="label">
-                  <span className="label-text">Sketch Operator Prompt</span>
+                  <span className="label-text text-lg font-medium">Sketch Operator Prompt</span>
                 </label>
                 <textarea
-                  className="textarea textarea-bordered w-full h-48"
+                  className="textarea textarea-bordered min-h-[200px] font-mono text-sm"
                   placeholder="Enter sketch operator prompt"
                   value={prompts.sketch_operator_prompt}
                   onChange={(e) => setPrompts({
@@ -249,13 +272,13 @@ function Admin() {
 
       {/* Delete Confirmation Modal */}
       {teamToDelete && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
-            <h3 className="font-bold text-lg mb-4">Delete Team</h3>
-            <p className="text-base-content/70 mb-6">
+        <div className="modal modal-open">
+          <div className="modal-box">
+            <h3 className="font-bold text-lg">Delete Team</h3>
+            <p className="py-4">
               Are you sure you want to delete the team "{teamToDelete.name}"? This action cannot be undone.
             </p>
-            <div className="modal-action flex gap-3">
+            <div className="modal-action">
               <button 
                 className="btn btn-ghost"
                 onClick={() => setTeamToDelete(null)}
