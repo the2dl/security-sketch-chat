@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api/api';
 import { formatDistanceToNow } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
+import { io } from 'socket.io-client';
 
 function Home() {
   const [sketchName, setSketchName] = useState('');
@@ -24,11 +25,49 @@ function Home() {
   const [selectedTeamDetails, setSelectedTeamDetails] = useState(null);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joiningRoomId, setJoiningRoomId] = useState(null);
+  const [showAdminKeyModal, setShowAdminKeyModal] = useState(false);
+  const [adminKey, setAdminKey] = useState('');
+  const [copySuccess, setCopySuccess] = useState(false);
 
   useEffect(() => {
     fetchActiveRooms();
     fetchTeams();
   }, []);
+
+  useEffect(() => {
+    console.log('Setting up socket connection for admin key...');
+    
+    const socket = io('http://localhost:3000', {
+      withCredentials: true,
+      auth: { apiKey: process.env.REACT_APP_API_KEY },
+      transports: ['websocket']
+    });
+
+    socket.on('connect', () => {
+      console.log('Socket connected successfully');
+    });
+
+    socket.on('connect_error', (error) => {
+      console.error('Socket connection error:', error);
+    });
+
+    socket.on('initial_admin_key', ({ adminKey }) => {
+      console.log('Received admin key:', adminKey);
+      setAdminKey(adminKey);
+      setShowAdminKeyModal(true);
+    });
+
+    return () => {
+      console.log('Cleaning up socket connection');
+      socket.off('initial_admin_key');
+      socket.disconnect();
+    };
+  }, []);
+
+  useEffect(() => {
+    console.log('Admin key modal visibility:', showAdminKeyModal);
+    console.log('Current admin key:', adminKey);
+  }, [showAdminKeyModal, adminKey]);
 
   const fetchTeams = async () => {
     try {
@@ -199,6 +238,27 @@ function Home() {
     // Pre-fill username if it exists in localStorage
     setUsername(localStorage.getItem('username') || '');
     setShowCreateModal(true);
+  };
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(adminKey);
+      setCopySuccess(true);
+      setTimeout(() => setCopySuccess(false), 2000); // Reset after 2 seconds
+    } catch (err) {
+      console.error('Failed to copy text:', err);
+    }
+  };
+
+  // Update the handleModalClose function to use the correct API method
+  const handleModalClose = async () => {
+    try {
+      await api.acknowledgeAdminKey();
+      setShowAdminKeyModal(false);
+    } catch (error) {
+      console.error('Failed to acknowledge admin key:', error);
+      setShowAdminKeyModal(false);
+    }
   };
 
   return (
@@ -500,6 +560,40 @@ function Home() {
                 disabled={!username.trim() || !selectedTeam}
               >
                 Join
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showAdminKeyModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
+            <h3 className="font-bold text-lg mb-4">Initial Admin Key Generated</h3>
+            <div className="flex flex-col gap-2 mb-6">
+              <p className="text-base-content">Please save this admin key in a secure location. It will only be shown once:</p>
+              <div className="bg-base-300 p-3 rounded-lg flex items-center gap-2">
+                <code className="text-primary break-all font-mono flex-1">
+                  {adminKey}
+                </code>
+                <button 
+                  className={`btn btn-sm ${copySuccess ? 'btn-success' : 'btn-ghost'}`}
+                  onClick={handleCopy}
+                >
+                  {copySuccess ? (
+                    <span>Copied!</span>
+                  ) : (
+                    <span>Copy</span>
+                  )}
+                </button>
+              </div>
+            </div>
+            <div className="modal-action">
+              <button 
+                className="btn btn-primary"
+                onClick={handleModalClose}
+              >
+                I've Saved the Key
               </button>
             </div>
           </div>

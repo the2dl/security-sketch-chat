@@ -555,5 +555,21 @@ export const api = {
     }
     
     return response.json();
+  },
+
+  async acknowledgeAdminKey() {
+    const response = await fetch(`${API_URL}/api/admin/acknowledge-key`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': process.env.REACT_APP_API_KEY
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to acknowledge admin key');
+    }
+    
+    return response.json();
   }
 };

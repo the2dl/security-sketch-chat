@@ -55,6 +55,14 @@ const io = new Server(server, {
   }
 });
 
+// Add this check
+if (!io) {
+  console.error('Failed to initialize Socket.IO server');
+  process.exit(1);
+}
+
+console.log('Socket.IO server initialized successfully');
+
 // Add authentication middleware for Socket.IO
 io.use((socket, next) => {
   const apiKey = socket.handshake.auth.apiKey;
@@ -210,6 +218,18 @@ User question: ${userQuestion}`;
 
 // Socket.IO connection handling
 io.on('connection', (socket) => {
+  console.log('New socket connection:', socket.id);
+  
+  // Send the admin key only if it exists and hasn't been shown
+  pool.query('SELECT admin_key, shown FROM platform_settings LIMIT 1')
+    .then(result => {
+      if (result.rows[0]?.admin_key && !result.rows[0]?.shown) {
+        console.log('Sending admin key to new connection');
+        socket.emit('initial_admin_key', { adminKey: result.rows[0].admin_key });
+      }
+    })
+    .catch(err => console.error('Error fetching admin key for new socket:', err));
+
   console.log('User connected:', socket.id);
 
   // Add new handler for explicit room joining
@@ -1129,6 +1149,12 @@ const initializeAdminKey = async () => {
         [adminKey]
       );
       console.log('Initial admin key generated:', adminKey);
+      
+      // Broadcast to all connected sockets
+      const sockets = await io.fetchSockets();
+      console.log(`Broadcasting admin key to ${sockets.length} connected sockets`);
+      io.emit('initial_admin_key', { adminKey });
+      
       return adminKey;
     }
     return result.rows[0].admin_key;
@@ -1295,11 +1321,31 @@ app.post('/api/users', async (req, res) => {
   }
 });
 
+app.post('/api/admin/acknowledge-key', async (req, res) => {
+  try {
+    await pool.query(
+      'UPDATE platform_settings SET shown = true WHERE shown = false'
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating admin key shown status:', error);
+    res.status(500).json({ error: 'Failed to update admin key status' });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
   await testDatabaseConnection();
   await setupDatabase();
+  
+  // Initialize admin key after server is listening
+  try {
+    const adminKey = await initializeAdminKey();
+    console.log('Admin key initialization completed');
+  } catch (error) {
+    console.error('Failed to initialize admin key:', error);
+  }
 });
 
 // Add pool error handler
@@ -1348,6 +1394,22 @@ async function setupDatabase() {
         ) THEN 
           ALTER TABLE room_participants 
           ADD COLUMN team_id INTEGER REFERENCES teams(id);
+        END IF;
+      END $$;
+    `);
+
+    // Add shown column if it doesn't exist
+    await client.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'platform_settings' 
+          AND column_name = 'shown'
+        ) THEN 
+          ALTER TABLE platform_settings 
+          ADD COLUMN shown BOOLEAN DEFAULT FALSE;
         END IF;
       END $$;
     `);
