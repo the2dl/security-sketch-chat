@@ -532,11 +532,27 @@ function ChatRoom() {
   };
 
   const scrollToBottom = () => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    if (messagesEndRef.current) {
+      messagesEndRef.current.scrollIntoView({ 
+        behavior: "auto",  // Changed from "smooth" to "auto" for initial load
+        block: "end"
+      });
+    }
   };
 
   useEffect(() => {
-    scrollToBottom();
+    if (messages.length > 0 && isJoined) {
+      scrollToBottom();
+    }
+  }, [isJoined, messages.length]); // Trigger when messages are loaded or user joins
+
+  useEffect(() => {
+    if (isJoined) {
+      messagesEndRef.current?.scrollIntoView({ 
+        behavior: "smooth",
+        block: "end"
+      });
+    }
   }, [messages]);
 
   const onEmojiSelect = (emoji) => {

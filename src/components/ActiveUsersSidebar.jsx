@@ -84,6 +84,9 @@ function ActiveUsersSidebar({
     const isUserRoomOwner = user.id === roomOwnerId;
     const isUserCoOwner = coOwners.includes(user.id);
 
+    // Theme-aware text color
+    const textColorClass = theme === 'corporate' ? 'text-primary' : 'text-purple-300';
+
     return (
       <div 
         key={user.username}
@@ -92,8 +95,8 @@ function ActiveUsersSidebar({
         {/* User Badge Pill */}
         <div className="badge badge-primary bg-primary/10 border-primary/20 p-2 w-[180px] flex items-center justify-start">
           <div className="w-1.5 h-1.5 bg-primary rounded-full shrink-0 mr-2"></div>
-          <FaUserCog className="w-3.5 h-3.5 shrink-0 mr-2 text-purple-300" />
-          <span className="truncate text-purple-300">{formatUserDisplay(user)}</span>
+          <FaUserCog className={`w-3.5 h-3.5 shrink-0 mr-2 ${textColorClass}`} />
+          <span className={`truncate ${textColorClass}`}>{formatUserDisplay(user)}</span>
         </div>
 
         {/* Icons Container */}
