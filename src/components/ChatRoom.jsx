@@ -57,6 +57,8 @@ function ChatRoom() {
     return storedTeam ? JSON.parse(storedTeam) : null;
   });
 
+  const [coOwners, setCoOwners] = useState([]);
+
   const formatMessageContent = (content, username) => {
     // Split content by code blocks first
     const parts = content.split(/(```[\s\S]*?```|`[^`]+`)/g);
@@ -200,7 +202,10 @@ function ChatRoom() {
         roomName: newRoomName, 
         username: newUsername,
         recoveryKey: newRecoveryKey,
-        team: userTeam 
+        team: userTeam,
+        isRoomOwner: newIsRoomOwner,
+        coOwners: roomCoOwners,
+        room  // Add this to receive room data
       }) => {
         console.log('Room joined, active users:', roomUsers);
         
@@ -233,6 +238,24 @@ function ChatRoom() {
           console.log('Setting team:', userTeam);
           setSelectedTeam(userTeam);
           localStorage.setItem(`team_${roomId}`, JSON.stringify(userTeam));
+        }
+        
+        if (newIsRoomOwner) {
+          setIsRoomOwner(true);
+          localStorage.setItem(`isRoomOwner_${roomId}`, 'true');
+        }
+        
+        if (roomCoOwners) {
+          setCoOwners(roomCoOwners);
+          // If current user is in co-owners, they should have owner privileges
+          if (newUserId && roomCoOwners.includes(newUserId)) {
+            setIsRoomOwner(true);
+            localStorage.setItem(`isRoomOwner_${roomId}`, 'true');
+          }
+        }
+        if (room?.owner_id) {
+          setRoomOwnerId(room.owner_id);
+          console.log('Setting room owner ID:', room.owner_id); // Debug log
         }
       });
 
@@ -332,6 +355,25 @@ function ChatRoom() {
           console.error('Error refreshing active users:', error);
         }
       }, 15000);
+
+      // Add co-owner update listener
+      api.onCoOwnerUpdated(({ userId, isCoOwner, coOwners }) => {
+        console.log('Co-owner update received:', { userId, isCoOwner, coOwners });
+        
+        // Update coOwners state
+        setCoOwners(coOwners);
+        
+        // If this update is for the current user, update their owner status
+        const currentUserId = localStorage.getItem(`userId_${roomId}`);
+        if (userId === currentUserId) {
+          setIsRoomOwner(isCoOwner);
+          if (isCoOwner) {
+            localStorage.setItem(`isRoomOwner_${roomId}`, 'true');
+          } else {
+            localStorage.removeItem(`isRoomOwner_${roomId}`);
+          }
+        }
+      });
 
       return () => {
         console.log('Cleaning up socket listeners');
@@ -896,6 +938,85 @@ function ChatRoom() {
     }
   }, [roomId, location.state?.username]);
 
+  const handleAddCoOwner = async (userId) => {
+    try {
+      await api.addCoOwner(roomId, userId);
+      setCoOwners(prev => [...prev, userId]);
+    } catch (error) {
+      console.error('Failed to add co-owner:', error);
+      setError('Failed to add co-owner');
+    }
+  };
+
+  const handleRemoveCoOwner = async (userId) => {
+    try {
+      await api.removeCoOwner(roomId, userId);
+      setCoOwners(prev => prev.filter(id => id !== userId));
+    } catch (error) {
+      console.error('Failed to remove co-owner:', error);
+      setError('Failed to remove co-owner');
+    }
+  };
+
+  useEffect(() => {
+    const socket = api.initSocket();
+    
+    // Listen for co-owner updates
+    api.onCoOwnerUpdated(({ userId, isCoOwner, coOwners }) => {
+      console.log('Co-owner update received:', { userId, isCoOwner, coOwners });
+      
+      // Update coOwners state
+      setCoOwners(coOwners);
+      
+      // If this update is for the current user, update their owner status
+      const currentUserId = localStorage.getItem(`userId_${roomId}`);
+      if (userId === currentUserId) {
+        setIsRoomOwner(isCoOwner);
+        if (isCoOwner) {
+          localStorage.setItem(`isRoomOwner_${roomId}`, 'true');
+        } else {
+          localStorage.removeItem(`isRoomOwner_${roomId}`);
+        }
+      }
+    });
+
+    return () => {
+      api.cleanup();
+    };
+  }, [roomId]);
+
+  // Add this effect to sync with localStorage
+  useEffect(() => {
+    const isOwner = localStorage.getItem(`isRoomOwner_${roomId}`) === 'true';
+    setIsRoomOwner(isOwner);
+  }, [roomId]);
+
+  const [roomOwnerId, setRoomOwnerId] = useState(null);
+
+  useEffect(() => {
+    const socket = api.initSocket();
+    if (!socket) return;
+
+    api.onRoomJoined(({ 
+      messages: roomMessages, 
+      activeUsers: roomUsers, 
+      userId: newUserId, 
+      roomName: newRoomName, 
+      username: newUsername,
+      recoveryKey: newRecoveryKey,
+      team: userTeam,
+      isRoomOwner: newIsRoomOwner,
+      coOwners: roomCoOwners,
+      room  // Make sure this is coming through
+    }) => {
+      // ... existing code ...
+      if (room?.owner_id) {
+        setRoomOwnerId(room.owner_id);
+        console.log('Setting room owner ID:', room.owner_id); // Debug log
+      }
+    });
+  }, [roomId]);
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -1003,6 +1124,12 @@ function ChatRoom() {
           setCurrentPage={setCurrentPage}
           onFileDelete={handleFileDelete}
           onRefreshFiles={handleRefreshFiles}
+          isRoomOwner={isRoomOwner}
+          onAddCoOwner={handleAddCoOwner}
+          onRemoveCoOwner={handleRemoveCoOwner}
+          coOwners={coOwners}
+          roomId={roomId}
+          roomOwnerId={roomOwnerId}
         />
       </div>
 

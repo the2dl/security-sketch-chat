@@ -154,7 +154,10 @@ const sendMessage = ({ roomId, username, content, llm_required, messageType }) =
 // Add these socket event handlers
 const onRoomJoined = (callback) => {
   if (!socket) return;
-  socket.on('room_joined', callback);
+  socket.on('room_joined', (data) => {
+    console.log('Room joined with data:', data);
+    callback(data);
+  });
 };
 
 const onNewMessage = (callback) => {
@@ -215,6 +218,7 @@ const cleanup = () => {
   socket.off('user_left');
   socket.off('update_active_users');
   socket.off('bot_message');
+  socket.off('co_owner_updated');
   socket.off('error');
 };
 
@@ -571,5 +575,47 @@ export const api = {
     }
     
     return response.json();
+  },
+
+  // Add these new methods
+  addCoOwner: async (roomId, userId) => {
+    const response = await fetchWithAuth(`${API_URL}/api/rooms/${roomId}/co-owners`, {
+      method: 'POST',
+      body: JSON.stringify({ userId })
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to add co-owner');
+    }
+    
+    return response.json();
+  },
+
+  removeCoOwner: async (roomId, userId) => {
+    const response = await fetchWithAuth(`${API_URL}/api/rooms/${roomId}/co-owners/${userId}`, {
+      method: 'DELETE'
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to remove co-owner');
+    }
+    
+    return response.json();
+  },
+
+  // Add this with the other socket event handlers
+  onCoOwnerUpdated: (callback) => {
+    if (!socket) {
+      socket = initSocket();
+    }
+    
+    // Remove existing listeners to prevent duplicates
+    socket.off('co_owner_updated');
+    
+    // Add new listener with debug logging
+    socket.on('co_owner_updated', (data) => {
+      console.log('Socket received co_owner_updated:', data);
+      callback(data);
+    });
   }
 };

@@ -239,8 +239,7 @@ io.on('connection', (socket) => {
     
     // Log all sockets in this room
     const room = io.sockets.adapter.rooms.get(roomId);
-    console.log(`Current sockets in room ${roomId}:`, 
-      room ? Array.from(room) : 'No sockets');
+    console.log(`Current sockets in room ${roomId}:`, Array.from(room || []));
   });
 
   // Add keep_alive handler
@@ -369,9 +368,17 @@ io.on('connection', (socket) => {
 
       console.log('Emitting room_joined with recovery key:', recoveryKey);
 
-      // Determine if user is room owner
-      const isRoomOwner = isOwner || (userId === room.owner_id);
-      console.log('User owner status:', { userId, roomOwnerId: room.owner_id, isRoomOwner });
+      // Determine if user is room owner or co-owner
+      const isRoomOwner = isOwner || 
+        (userId === room.owner_id) || 
+        (room.co_owners && room.co_owners.includes(userId));
+      
+      console.log('User owner status:', { 
+        userId, 
+        roomOwnerId: room.owner_id, 
+        isRoomOwner,
+        coOwners: room.co_owners 
+      });
 
       // Get team name if team ID is provided
       let teamName = 'sketch';
@@ -436,8 +443,12 @@ io.on('connection', (socket) => {
         username: username,
         roomName: room.name,
         recoveryKey: recoveryKey,
-        isOwner: isRoomOwner,
-        team: teamDetails
+        isRoomOwner: isRoomOwner,
+        team: teamDetails,
+        coOwners: room.co_owners || [],
+        room: {
+          owner_id: room.owner_id
+        }
       });
 
       // Broadcast user joined to all OTHER clients in the room
@@ -526,67 +537,37 @@ io.on('connection', (socket) => {
       console.error('Error handling disconnect:', error);
     }
   });
-  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType, type }) => {
+  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType, commandType, targetUsername }) => {
     try {
-      // Special handling for system messages about file uploads
-      if (messageType === 'system' && type === 'file-upload') {
-        // Just broadcast the message without storing in DB
-        const messageData = {
-          content,
-          username: 'system',
-          timestamp: new Date().toISOString(),
-          roomId,
-          messageType,
-          isSystem: true,
-          type
-        };
-        
-        io.to(roomId).emit('new_message', messageData);
-        return;
-      }
+      console.log('Received message:', { roomId, username, content, messageType });
+      
+      // Log room membership before broadcasting
+      const room = io.sockets.adapter.rooms.get(roomId);
+      console.log(`Broadcasting to room ${roomId}. Current members:`, Array.from(room || []));
 
-      if (!userId) {
-        throw new Error('User ID is required');
-      }
-
-      // Get user's team information
-      const teamResult = await pool.query(
-        `SELECT t.id, t.name 
-         FROM room_participants rp 
-         LEFT JOIN teams t ON rp.team_id = t.id 
-         WHERE rp.room_id = $1 AND rp.user_id = $2`,
-        [roomId, userId]
-      );
-
-      const team = teamResult.rows[0] ? {
-        id: teamResult.rows[0].id,
-        name: teamResult.rows[0].name
-      } : null;
-
-      // Save message to database with message_type
+      // Regular message handling
       const result = await pool.query(
-        'INSERT INTO messages (room_id, user_id, content, llm_required, message_type) VALUES ($1, $2, $3, $4, $5) RETURNING id, content, created_at as timestamp',
-        [roomId, userId, content, llm_required === true, messageType]  // Add messageType
+        `INSERT INTO messages (room_id, user_id, content, created_at, llm_required, message_type)
+         VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4, $5)
+         RETURNING id, created_at`,
+        [roomId, userId, content, llm_required, messageType]
       );
 
       const messageData = {
         id: result.rows[0].id,
         content,
         username,
-        timestamp: result.rows[0].timestamp,
-        roomId,
-        messageType,
-        llm_required
+        timestamp: result.rows[0].created_at,
+        messageType
       };
 
-      io.to(roomId).emit('new_message', {
-        ...messageData,
-        team
-      });
+      // Emit to all sockets in the room
+      io.to(roomId).emit('new_message', messageData);
+      console.log(`Message broadcast to room ${roomId}:`, messageData);
 
     } catch (error) {
-      console.error('Error sending message:', error);
-      socket.emit('error', { message: 'Failed to send message' });
+      console.error('Error handling message:', error);
+      socket.emit('error', { message: 'Failed to process message' });
     }
   });
 });
@@ -1421,4 +1402,75 @@ async function setupDatabase() {
     process.exit(1);
   }
 }
+
+// Add these new endpoints after your existing room endpoints
+app.post('/api/rooms/:roomId/co-owners', async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const { userId } = req.body;
+    
+    // Get current co-owners
+    const roomResult = await pool.query(
+      'SELECT co_owners FROM rooms WHERE id = $1',
+      [roomId]
+    );
+
+    let coOwners = roomResult.rows[0].co_owners || [];
+    
+    // Add new co-owner if not already present
+    if (!coOwners.includes(userId)) {
+      coOwners.push(userId);
+    }
+
+    // Update database
+    await pool.query(
+      'UPDATE rooms SET co_owners = $1 WHERE id = $2',
+      [coOwners, roomId]
+    );
+
+    // Broadcast to ALL clients in the room using socket.io
+    io.to(roomId).emit('co_owner_updated', {
+      userId,
+      isCoOwner: true,
+      coOwners
+    });
+
+    res.json({ success: true, coOwners });
+  } catch (error) {
+    console.error('Error adding co-owner:', error);
+    res.status(500).json({ error: 'Failed to add co-owner' });
+  }
+});
+
+app.delete('/api/rooms/:roomId/co-owners/:userId', async (req, res) => {
+  try {
+    const { roomId, userId } = req.params;
+    
+    // Update co-owners in database
+    const roomResult = await pool.query(
+      'SELECT co_owners FROM rooms WHERE id = $1',
+      [roomId]
+    );
+
+    let coOwners = roomResult.rows[0].co_owners || [];
+    coOwners = coOwners.filter(id => id !== userId);
+
+    await pool.query(
+      'UPDATE rooms SET co_owners = $1 WHERE id = $2',
+      [coOwners, roomId]
+    );
+
+    // Broadcast to ALL clients in the room using socket.io
+    io.to(roomId).emit('co_owner_updated', {
+      userId,
+      isCoOwner: false,
+      coOwners
+    });
+
+    res.json({ success: true, coOwners });
+  } catch (error) {
+    console.error('Error removing co-owner:', error);
+    res.status(500).json({ error: 'Failed to remove co-owner' });
+  }
+});
 

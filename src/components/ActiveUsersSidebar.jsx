@@ -1,6 +1,6 @@
 import { HiUserAdd } from 'react-icons/hi';
-import { FaFileUpload, FaTrash, FaRobot, FaSync } from 'react-icons/fa';
-import { useState } from 'react';
+import { FaFileUpload, FaTrash, FaRobot, FaSync, FaUserShield, FaUserCog, FaUserPlus, FaUserMinus } from 'react-icons/fa';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
 
@@ -23,9 +23,24 @@ function ActiveUsersSidebar({
   setCurrentPage,
   onFileDelete,
   onRefreshFiles,
+  isRoomOwner,
+  onAddCoOwner,
+  onRemoveCoOwner,
+  coOwners = [],
+  roomOwnerId,
+  roomId
 }) {
   const [fileToDelete, setFileToDelete] = useState(null);
   const { theme } = useTheme();
+  const [forceUpdate, setForceUpdate] = useState(false);
+
+  useEffect(() => {
+    const handleStorageChange = () => {
+      setForceUpdate(prev => !prev);
+    };
+    window.addEventListener('storage', handleStorageChange);
+    return () => window.removeEventListener('storage', handleStorageChange);
+  }, []);
 
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
@@ -50,10 +65,10 @@ function ActiveUsersSidebar({
 
   const getBotBadgeStyles = () => {
     if (theme === 'corporate') {
-      return 'badge badge-primary bg-primary/10 border-primary/20 text-primary gap-2 p-3 rounded-lg';
+      return 'badge badge-primary bg-primary/10 border-primary/20 text-primary p-2 w-[180px] flex items-center justify-start';
     }
-    // Default dark theme styles
-    return 'badge badge-primary bg-purple-500/10 border-purple-500/20 text-purple-300 gap-2 p-3 rounded-lg';
+    // Dracula theme styles
+    return 'badge badge-primary bg-purple-500/10 border-purple-500/20 text-purple-300 p-2 w-[180px] flex items-center justify-start';
   };
 
   const formatUserDisplay = (user) => {
@@ -61,6 +76,65 @@ function ActiveUsersSidebar({
       return `${user.username}@${user.team.name}`;
     }
     return user.username;
+  };
+
+  const renderUserBadge = (user) => {
+    const currentUserId = localStorage.getItem(`userId_${roomId}`);
+    const isActualRoomOwner = currentUserId === roomOwnerId;
+    const isUserRoomOwner = user.id === roomOwnerId;
+    const isUserCoOwner = coOwners.includes(user.id);
+
+    return (
+      <div 
+        key={user.username}
+        className="flex items-center gap-1.5 group"
+      >
+        {/* User Badge Pill */}
+        <div className="badge badge-primary bg-primary/10 border-primary/20 p-2 w-[180px] flex items-center justify-start">
+          <div className="w-1.5 h-1.5 bg-primary rounded-full shrink-0 mr-2"></div>
+          <FaUserCog className="w-3.5 h-3.5 shrink-0 mr-2 text-purple-300" />
+          <span className="truncate text-purple-300">{formatUserDisplay(user)}</span>
+        </div>
+
+        {/* Icons Container */}
+        <div className="flex items-center gap-1 shrink-0">
+          {/* Role Icons */}
+          {isUserRoomOwner && (
+            <FaUserShield 
+              className="w-3.5 h-3.5 text-yellow-500" 
+              title="Room Owner" 
+            />
+          )}
+          {isUserCoOwner && (
+            <FaUserCog 
+              className="w-3.5 h-3.5 text-gray-400" 
+              title="Co-Owner" 
+            />
+          )}
+          
+          {/* Owner Controls */}
+          {isActualRoomOwner && !isUserRoomOwner && (
+            !isUserCoOwner ? (
+              <button
+                onClick={() => onAddCoOwner(user.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity btn btn-ghost btn-xs text-success hover:bg-success/10 px-1"
+                title="Make co-owner"
+              >
+                <FaUserPlus size={12} />
+              </button>
+            ) : (
+              <button
+                onClick={() => onRemoveCoOwner(user.id)}
+                className="opacity-0 group-hover:opacity-100 transition-opacity btn btn-ghost btn-xs text-error hover:bg-error/10 px-1"
+                title="Remove co-owner"
+              >
+                <FaUserMinus size={12} />
+              </button>
+            )
+          )}
+        </div>
+      </div>
+    );
   };
 
   return (
@@ -73,23 +147,16 @@ function ActiveUsersSidebar({
             Active Users ({activeUsers.length})
           </h3>
         </div>
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-col gap-1.5">
           {/* Bot user - always shown first */}
           <div className={getBotBadgeStyles()}>
-            <FaRobot className="w-3.5 h-3.5" />
-            sketchy@system
+            <div className="w-1.5 h-1.5 bg-primary rounded-full shrink-0 mr-2"></div>
+            <FaRobot className="w-3.5 h-3.5 shrink-0 mr-2" />
+            <span className="truncate text-left">sketchy@system</span>
           </div>
           
           {/* Existing user badges */}
-          {activeUsers.map(user => (
-            <div 
-              key={user.username}
-              className="badge badge-primary bg-primary/10 border-primary/20 text-primary-content gap-2 p-3 rounded-lg"
-            >
-              <div className="w-1.5 h-1.5 bg-primary rounded-full"></div>
-              {formatUserDisplay(user)}
-            </div>
-          ))}
+          {activeUsers.map(user => renderUserBadge(user))}
         </div>
       </div>
 
