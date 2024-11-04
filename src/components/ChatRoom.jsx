@@ -1049,6 +1049,8 @@ function ChatRoom() {
             </div>
           </div>
           
+          <hr className="border-base-300 my-2" />
+          
           <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0">
             {messages.map((msg, index) => (
               <div key={msg.id || `temp-${index}`}>
