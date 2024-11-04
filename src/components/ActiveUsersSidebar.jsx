@@ -98,18 +98,20 @@ function ActiveUsersSidebar({
 
         {/* Icons Container */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Role Icons */}
+          {/* Role Icons with Tooltips */}
           {isUserRoomOwner && (
-            <FaUserShield 
-              className="w-3.5 h-3.5 text-yellow-500" 
-              title="Room Owner" 
-            />
+            <div className="tooltip tooltip-top" data-tip="Room Owner">
+              <FaUserShield 
+                className="w-3.5 h-3.5 text-yellow-500"
+              />
+            </div>
           )}
           {isUserCoOwner && (
-            <FaUserCog 
-              className="w-3.5 h-3.5 text-gray-400" 
-              title="Co-Owner" 
-            />
+            <div className="tooltip tooltip-top" data-tip="Co-Owner">
+              <FaUserCog 
+                className="w-3.5 h-3.5 text-gray-400"
+              />
+            </div>
           )}
           
           {/* Owner Controls */}
