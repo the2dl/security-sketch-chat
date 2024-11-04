@@ -617,5 +617,28 @@ export const api = {
       console.log('Socket received co_owner_updated:', data);
       callback(data);
     });
-  }
+  },
+
+  getPrompts: async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/prompts`);
+    
+    if (!response.ok) {
+      throw new Error('Failed to fetch prompts');
+    }
+    
+    return response.json();
+  },
+
+  updatePrompts: async (prompts) => {
+    const response = await fetchWithAuth(`${API_URL}/api/prompts`, {
+      method: 'PUT',
+      body: JSON.stringify(prompts)
+    });
+    
+    if (!response.ok) {
+      throw new Error('Failed to update prompts');
+    }
+    
+    return response.json();
+  },
 };

@@ -970,7 +970,7 @@ app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req,
     const { roomId, sketchId, username, team } = req.body;
     const file = req.file;
 
-    // Save file metadata to database
+    // Save file metadata to database with uploader info
     const result = await pool.query(
       `INSERT INTO uploaded_files (
         room_id, 
@@ -979,8 +979,10 @@ app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req,
         original_filename,
         file_path,
         file_size,
-        file_type
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+        file_type,
+        uploader_username,
+        uploader_team
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
       [
         roomId,
         sketchId,
@@ -988,7 +990,9 @@ app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req,
         file.originalname,
         file.path,
         file.size,
-        path.extname(file.originalname).substring(1)
+        path.extname(file.originalname).substring(1),
+        username,
+        team
       ]
     );
 
@@ -1017,7 +1021,8 @@ app.post('/api/files/upload', validateApiKey, upload.single('file'), async (req,
 app.get('/api/files/:roomId', validateApiKey, async (req, res) => {
   try {
     const result = await pool.query(
-      `SELECT id, original_filename, file_size, file_type, created_at
+      `SELECT id, original_filename, file_size, file_type, created_at,
+              uploader_username, uploader_team
        FROM uploaded_files
        WHERE room_id = $1
        ORDER BY created_at DESC`,
@@ -1395,6 +1400,32 @@ async function setupDatabase() {
       END $$;
     `);
 
+    // Add prompt columns if they don't exist
+    await client.query(`
+      DO $$ 
+      BEGIN 
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'platform_settings' 
+          AND column_name = 'evidence_processor_prompt'
+        ) THEN 
+          ALTER TABLE platform_settings 
+          ADD COLUMN evidence_processor_prompt TEXT;
+        END IF;
+
+        IF NOT EXISTS (
+          SELECT 1 
+          FROM information_schema.columns 
+          WHERE table_name = 'platform_settings' 
+          AND column_name = 'sketch_operator_prompt'
+        ) THEN 
+          ALTER TABLE platform_settings 
+          ADD COLUMN sketch_operator_prompt TEXT;
+        END IF;
+      END $$;
+    `);
+
     console.log('Database schema updated successfully');
     await client.release();
   } catch (err) {
@@ -1471,6 +1502,40 @@ app.delete('/api/rooms/:roomId/co-owners/:userId', async (req, res) => {
   } catch (error) {
     console.error('Error removing co-owner:', error);
     res.status(500).json({ error: 'Failed to remove co-owner' });
+  }
+});
+
+// Get all prompts
+app.get('/api/prompts', async (req, res) => {
+  try {
+    const result = await pool.query(
+      'SELECT evidence_processor_prompt, sketch_operator_prompt FROM platform_settings LIMIT 1'
+    );
+    res.json({
+      evidence_processor_prompt: result.rows[0]?.evidence_processor_prompt || '',
+      sketch_operator_prompt: result.rows[0]?.sketch_operator_prompt || ''
+    });
+  } catch (error) {
+    console.error('Error fetching prompts:', error);
+    res.status(500).json({ error: 'Failed to fetch prompts' });
+  }
+});
+
+// Update prompts
+app.put('/api/prompts', async (req, res) => {
+  try {
+    const { evidence_processor_prompt, sketch_operator_prompt } = req.body;
+    await pool.query(
+      `UPDATE platform_settings 
+       SET evidence_processor_prompt = $1,
+           sketch_operator_prompt = $2,
+           updated_at = CURRENT_TIMESTAMP`,
+      [evidence_processor_prompt, sketch_operator_prompt]
+    );
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating prompts:', error);
+    res.status(500).json({ error: 'Failed to update prompts' });
   }
 });
 

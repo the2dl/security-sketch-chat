@@ -9,9 +9,12 @@ function Admin() {
   const [adminKey, setAdminKey] = useState('');
   const [teams, setTeams] = useState([]);
   const [newTeam, setNewTeam] = useState({ name: '', description: '' });
-  const [systemPrompt, setSystemPrompt] = useState('');
   const [error, setError] = useState(null);
   const [teamToDelete, setTeamToDelete] = useState(null);
+  const [prompts, setPrompts] = useState({
+    evidence_processor_prompt: '',
+    sketch_operator_prompt: ''
+  });
   const navigate = useNavigate();
 
   // Add useEffect for initial admin key check
@@ -81,16 +84,6 @@ function Admin() {
     }
   };
 
-  const handleUpdateSystemPrompt = async (e) => {
-    e.preventDefault();
-    try {
-      await api.updateSystemPrompt(systemPrompt);
-      showToast('System prompt updated successfully');
-    } catch (err) {
-      setError('Failed to update system prompt');
-    }
-  };
-
   const handleDeleteTeam = async () => {
     if (!teamToDelete) return;
     
@@ -102,6 +95,32 @@ function Admin() {
       setError('Failed to delete team');
     } finally {
       setTeamToDelete(null); // Close modal
+    }
+  };
+
+  // Add useEffect to fetch prompts
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchPrompts();
+    }
+  }, [isAuthorized]);
+
+  const fetchPrompts = async () => {
+    try {
+      const result = await api.getPrompts();
+      setPrompts(result);
+    } catch (err) {
+      setError('Failed to fetch prompts');
+    }
+  };
+
+  const handleUpdatePrompts = async (e) => {
+    e.preventDefault();
+    try {
+      await api.updatePrompts(prompts);
+      showToast('Prompts updated successfully');
+    } catch (err) {
+      setError('Failed to update prompts');
     }
   };
 
@@ -184,27 +203,51 @@ function Admin() {
           </div>
         </div>
 
-        {/* System Prompt Management */}
+        {/* AI Prompts Management */}
         <div className="card bg-base-200 shadow-xl">
           <div className="card-body">
-            <h2 className="card-title">System Prompt</h2>
+            <h2 className="card-title">AI Prompts Management</h2>
             
-            <form onSubmit={handleUpdateSystemPrompt} className="space-y-4">
-              <textarea
-                className="textarea textarea-bordered w-full h-48"
-                placeholder="Enter system prompt"
-                value={systemPrompt}
-                onChange={(e) => setSystemPrompt(e.target.value)}
-              />
+            <form onSubmit={handleUpdatePrompts} className="space-y-4">
+              <div>
+                <label className="label">
+                  <span className="label-text">Evidence Processor Prompt</span>
+                </label>
+                <textarea
+                  className="textarea textarea-bordered w-full h-48"
+                  placeholder="Enter evidence processor prompt"
+                  value={prompts.evidence_processor_prompt}
+                  onChange={(e) => setPrompts({
+                    ...prompts,
+                    evidence_processor_prompt: e.target.value
+                  })}
+                />
+              </div>
+
+              <div>
+                <label className="label">
+                  <span className="label-text">Sketch Operator Prompt</span>
+                </label>
+                <textarea
+                  className="textarea textarea-bordered w-full h-48"
+                  placeholder="Enter sketch operator prompt"
+                  value={prompts.sketch_operator_prompt}
+                  onChange={(e) => setPrompts({
+                    ...prompts,
+                    sketch_operator_prompt: e.target.value
+                  })}
+                />
+              </div>
+
               <button type="submit" className="btn btn-primary w-full">
-                Update System Prompt
+                Update Prompts
               </button>
             </form>
           </div>
         </div>
       </div>
 
-      {/* Add the Delete Confirmation Modal */}
+      {/* Delete Confirmation Modal */}
       {teamToDelete && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">

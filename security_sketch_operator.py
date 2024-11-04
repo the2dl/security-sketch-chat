@@ -59,6 +59,9 @@ class SecuritySketchOperator:
             
         self.api_key = os.getenv('API_KEY')
 
+        self.sketch_operator_prompt = None
+        self.fetch_prompt()
+
     def init_processed_messages_table(self):
         """Initialize the database tables"""
         try:
@@ -317,6 +320,35 @@ class SecuritySketchOperator:
             if 'conn' in locals():
                 conn.close()
 
+    def fetch_prompt(self):
+        """Fetch sketch operator prompt from database"""
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT sketch_operator_prompt 
+                FROM platform_settings 
+                LIMIT 1
+            """)
+            
+            result = cur.fetchone()
+            if result and result[0]:
+                self.sketch_operator_prompt = result[0]
+                logging.info("Successfully loaded sketch operator prompt")
+            else:
+                logging.error("No sketch operator prompt found in database")
+                raise ValueError("No sketch operator prompt found in database")
+                
+        except Exception as e:
+            logging.error(f"Error fetching sketch operator prompt: {e}")
+            raise
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
+
     def analyze_messages(self, messages_by_room):
         """Send messages to Gemini for analysis and get Timesketch format back"""
         if not messages_by_room:
@@ -352,64 +384,15 @@ class SecuritySketchOperator:
             },
         ]
 
-        prompt_template = '''
-        You are a cyber security expert who is working with the tool Timesketch by Google. There is a new interface being created that allow users to talk in "plain english" and you will convert it into the proper timesketch format (.jsonl) to send off to timesketch later.
+        # Update the prompt_template to use the database prompt but escape existing curly braces
+        prompt_template = f'''
+        {self.sketch_operator_prompt.replace("{", "{{").replace("}", "}}")}
 
-        IMPORTANT: If a message is marked as "LLM Required", you MUST convert it into Timesketch format, even if it appears to be regular chat. For these messages, make reasonable assumptions about security implications and create appropriate entries.
-
-        For example, if a message marked as "LLM Required" says "we saw bad things", you should create an entry like:
-        {{"message": "Potential security incident reported [T1078]", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Security Alert", "observer_name": "analyst"}}
-
-        Important notes about timestamps:
-        - If a timestamp is mentioned in the message/file, use that timestamp in the datetime field
-        - Only use the current timestamp if no timestamp is provided in the content
-        - Timestamps may appear in various formats (e.g., "2024-03-15 14:30:00", "March 15th 2:30 PM", "15/03/24 14:30")
-        - If a timezone is specified (e.g., EST, PST, GMT+2), convert the time to UTC
-        - Common timezone conversions:
-          * EST/EDT → UTC+4/5
-          * PST/PDT → UTC+7/8
-          * CST/CDT → UTC+5/6
-          * MST/MDT → UTC+6/7
-        - Convert all timestamps to ISO 8601 format in UTC (YYYY-MM-DDThh:mm:ssZ)
-        - If no timezone is specified, assume UTC
-
-        Here are examples of how you would output:
-
-        {{"message": "Suspicious domain: malicious.ru", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Network Connection", "domain": "malicious.ru", "observer_name": "alice"}}
-        {{"message": "Suspicious outbound connection detected to 12.34.56.78 on port 8080", "datetime": "2024-10-16T08:05:00Z", "timestamp_desc": "Network Connection", "dest_ip": "12.34.56.78", "dest_port": "8080", "observer_name": "bob"}}
-        {{"message": "Beaconing activity detected to C2 domain: badsite.com", "datetime": "2024-10-16T08:10:00Z", "timestamp_desc": "Network Security", "domain": "badsite.com", "observer_name": "charlie"}}
-        {{"message": "Large file transfer (400GB) to external FTP server detected", "datetime": "2024-10-16T08:15:00Z", "timestamp_desc": "Data Loss Prevention", "dest_port": "21", "bytes_sent": "400000000000", "observer_name": "dave"}}    
-        {{"message": "PowerShell execution with base64 encoded command detected", "datetime": "2024-10-16T08:20:00Z", "timestamp_desc": "Process Execution", "computer_name": "WORKSTATION01", "observer_name": "eve"}}        
-        {{"message": "Multiple failed login attempts detected from IP 10.0.0.5", "datetime": "2024-10-16T08:25:00Z", "timestamp_desc": "Authentication", "source_ip": "10.0.0.5", "observer_name": "frank"}}
-        {{"message": "Scheduled task created for persistence", "datetime": "2024-10-16T08:30:00Z", "timestamp_desc": "Scheduled Task Creation", "computer_name": "SERVER02", "observer_name": "grace"}}
-        {{"message": "Malicious file detected with MD5 hash d41d8cd98f00b204e9800998ecf8427e", "datetime": "2024-10-16T08:35:00Z", "timestamp_desc": "File Hash", "md5_hash": "d41d8cd98f00b204e9800998ecf8427e", "observer_name": "henry"}}
-        {{"message": "Suspicious executable found with SHA256 hash e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "datetime": "2024-10-16T08:40:00Z", "timestamp_desc": "File Hash", "sha256_hash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855", "observer_name": "ivy"}}
-        {{"message": "Suspicious executable detected at C:\\ProgramData\\XCerfzz.exe [T1059.003]", "datetime": "2024-10-16T08:45:00Z", "timestamp_desc": "File Creation", "file_path": "C:\\ProgramData\\XCerfzz.exe", "computer_name": "WORKSTATION01", "observer_name": "jack"}}
-
-        Example of message with multiple attributes that should create multiple entries:
-        Message: "saw some weird processes like C:\\Windows\\System32\\ripFAULT.exe running with the hash 0c32215fbaf5e83772997a7891b1d2ad"
-        Should create two entries:
-        {{"message": "Suspicious process detected: C:\\Windows\\System32\\ripFAULT.exe [T1059]", "datetime": "2024-10-16T08:50:00Z", "timestamp_desc": "Process Execution", "file_path": "C:\\Windows\\System32\\ripFAULT.exe", "observer_name": "alice"}}
-        {{"message": "Process hash identified: 0c32215fbaf5e83772997a7891b1d2ad [T1059]", "datetime": "2024-10-16T08:50:00Z", "timestamp_desc": "File Hash", "md5_hash": "0c32215fbaf5e83772997a7891b1d2ad", "observer_name": "alice"}}
-        
-        Important notes:
-        1. Always include the observer_name (the person reporting the activity)
-        2. Only include technical details (IPs, ports, protocols) that were explicitly mentioned in the message
-        3. Include timestamp from when the message was sent
-        4. Use appropriate timestamp_desc values like "Network Connection", "DNS Activity", "Network Security", "Data Loss Prevention", "Process Execution", "Authentication"
-        5. If multiple indicators are mentioned in a single message (like file paths AND hashes, or IPs AND ports), create separate entries for each indicator while maintaining the relationship in the message field
-        6. If you see wording like "contain" or "network contain" and then a weird name like "ABC123" or "CPC1234" etc, these are most likely the hostname of the impacted machine. Use the computer_name field for this
-        7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
-        8. For file hashes, use md5_hash and sha256_hash fields accordingly
-        9. For file paths, use the file_path field and include the computer_name if available
-
-        There may be times it's just "regular chat" and you don't need to convert anything, you need to make that decision. Your focus should be on turning indicators into timesketch, not worrying about common back and forth. If you decide it's regular chat, write back "Regular chat: no sketch update"
-
-        Chat Room: {room_name}
+        Chat Room: {{room_name}}
         Messages to Process:
-        {messages}
+        {{messages}}
 
-        Force Processing Required: {force_process}
+        Force Processing Required: {{force_process}}
 
         Your response should either be valid JSON lines or "Regular chat: no sketch update" ONLY IF force processing is not required.
         '''
