@@ -537,9 +537,9 @@ io.on('connection', (socket) => {
       console.error('Error handling disconnect:', error);
     }
   });
-  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType, commandType, targetUsername }) => {
+  socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType }) => {
     try {
-      console.log('Received message:', { roomId, username, content, messageType });
+      console.log('Received message:', { roomId, username, content, messageType, llm_required });
       
       // Log room membership before broadcasting
       const room = io.sockets.adapter.rooms.get(roomId);
@@ -558,7 +558,8 @@ io.on('connection', (socket) => {
         content,
         username,
         timestamp: result.rows[0].created_at,
-        messageType
+        messageType,
+        llm_required  // Add this explicitly
       };
 
       // Emit to all sockets in the room

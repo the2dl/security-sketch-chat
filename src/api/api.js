@@ -134,15 +134,18 @@ const sendMessage = ({ roomId, username, content, llm_required, messageType }) =
       socket.emit('join_socket_room', { roomId });
     }
 
-    // Explicitly include messageType in the emission
-    socket.emit('send_message', { 
-      roomId, 
-      username, 
-      content, 
+    // Create message object with consistent property names
+    const messageData = {
+      roomId,
+      username,
+      content,
       userId,
       llm_required: !!llm_required,
-      messageType: messageType || 'chat'  // Add default value
-    });
+      messageType: messageType || 'chat'
+    };
+
+    // Emit the message
+    socket.emit('send_message', messageData);
     
     socket.once('error', (error) => {
       console.error('Send message error:', error);

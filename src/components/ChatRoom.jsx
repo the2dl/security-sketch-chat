@@ -1356,7 +1356,9 @@ function ChatRoom() {
                       }`}>
                         {(msg.messageType === 'command' || msg.message_type === 'command') && (
                           <div className="absolute -top-2 -left-4 bg-base-200 rounded-full p-1 shadow-md z-10">
-                            {msg.content.includes('waves a security policy') ? (
+                            {msg.llm_required ? (
+                              <FaRobot className="w-3 h-3 text-purple-400" />
+                            ) : msg.content.includes('waves a security policy') ? (
                               <FaFileContract className="w-3 h-3 text-indigo-400" />
                             ) : (
                               <FaTerminal className="w-3 h-3 text-indigo-400" />
