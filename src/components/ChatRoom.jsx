@@ -1447,7 +1447,11 @@ function ChatRoom() {
                           className="w-full px-3 py-2 text-left hover:bg-base-300 flex items-start gap-2 group"
                         >
                           <div className="mt-0.5">
-                            <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
+                            {cmd === 'slap' ? (
+                              <FaFileContract className="w-3.5 h-3.5 text-indigo-400" />
+                            ) : (
+                              <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
+                            )}
                           </div>
                           <div>
                             <div className="flex items-center gap-2">

@@ -27,7 +27,10 @@ You can share this key with other investigators who need access.`;
   const copyToClipboard = async () => {
     try {
       await navigator.clipboard.writeText(secretKey);
-      // Optionally show a toast or some feedback
+      document.getElementById('toast-copy').classList.remove('hidden');
+      setTimeout(() => {
+        document.getElementById('toast-copy').classList.add('hidden');
+      }, 2000);
     } catch (err) {
       console.error('Failed to copy:', err);
     }
@@ -37,6 +40,11 @@ You can share this key with other investigators who need access.`;
 
   return (
     <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+      <div id="toast-copy" className="toast toast-top toast-center hidden">
+        <div className="alert alert-success">
+          <span>Copied to clipboard!</span>
+        </div>
+      </div>
       <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
         <h3 className="font-bold text-lg mb-4">Room Secret Key</h3>
         <div className="form-control">
