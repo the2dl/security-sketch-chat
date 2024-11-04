@@ -4,6 +4,7 @@ import Navbar from './components/Navbar';
 import Home from './components/Home';
 import ChatRoom from './components/ChatRoom'; // This now imports from the index.jsx in ChatRoom folder
 import Admin from './components/Admin';
+import InstallPrompt from './components/InstallPrompt';
 
 function App() {
   return (
@@ -17,6 +18,7 @@ function App() {
               <Route path="/chat/:roomId" element={<ChatRoom />} />
               <Route path="/admin" element={<Admin />} />
             </Routes>
+            <InstallPrompt />
           </div>
         </div>
       </Router>
