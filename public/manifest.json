@@ -22,6 +22,12 @@
       "type": "image/png",
       "sizes": "192x192",
       "purpose": "maskable"
+    },
+    {
+      "src": "badge-icon.png",
+      "sizes": "96x96",
+      "type": "image/png",
+      "purpose": "badge"
     }
   ],
   "start_url": ".",
@@ -30,5 +36,8 @@
   "background_color": "#ffffff",
   "orientation": "portrait",
   "scope": "/",
-  "description": "A collaborative investigation tool for security teams"
+  "description": "A collaborative investigation tool for security teams",
+  "permissions": [
+    "notifications"
+  ]
 }

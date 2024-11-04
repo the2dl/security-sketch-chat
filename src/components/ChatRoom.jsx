@@ -301,6 +301,12 @@ function ChatRoom() {
 
       api.onNewMessage((message) => {
         console.log('New message received in ChatRoom:', message);
+        
+        // Check for mentions
+        if (message.content.includes(`@${username}@`) && message.username !== username) {
+          sendNotification(message.username, message.content);
+        }
+
         setMessages(prevMessages => {
           // Only add server messages that aren't already in the list
           const messageExists = prevMessages.some(m => 
@@ -1033,6 +1039,115 @@ function ChatRoom() {
       }
     });
   }, [roomId]);
+
+  // Add new state for notification permission
+  const [notificationPermission, setNotificationPermission] = useState(Notification.permission);
+
+  // Add useEffect to request notification permission
+  useEffect(() => {
+    const requestNotificationPermission = async () => {
+      if (Notification.permission === 'default') {
+        const permission = await Notification.requestPermission();
+        setNotificationPermission(permission);
+      }
+    };
+
+    requestNotificationPermission();
+  }, []);
+
+  // Add notification helper function
+  const sendNotification = (mentionedBy, content) => {
+    if (!isWindowFocused) {
+      // Update unread count
+      setUnreadMentions(prev => {
+        const newCount = prev + 1;
+        // Update title with count
+        document.title = `(${newCount}) ${roomName}`;
+        return newCount;
+      });
+
+      // Send notification if permitted
+      if (notificationPermission === 'granted') {
+        const notification = new Notification('New Mention in Security Sketch', {
+          body: `${mentionedBy}: ${content}`,
+          icon: '/logo192.png',
+          badge: '/logo192.png',
+          tag: 'mention',
+          requireInteraction: true
+        });
+
+        notification.onclick = () => {
+          window.focus();
+          notification.close();
+        };
+      }
+    }
+  };
+
+  // Add new state for unread mentions
+  const [unreadMentions, setUnreadMentions] = useState(0);
+  const [isWindowFocused, setIsWindowFocused] = useState(true);
+
+  // Add useEffect for window focus handling
+  useEffect(() => {
+    const onFocus = () => {
+      setIsWindowFocused(true);
+      setUnreadMentions(0); // Reset count when window is focused
+      document.title = roomName; // Reset title
+    };
+
+    const onBlur = () => {
+      setIsWindowFocused(false);
+    };
+
+    window.addEventListener('focus', onFocus);
+    window.addEventListener('blur', onBlur);
+
+    // Set initial focus state
+    setIsWindowFocused(document.hasFocus());
+
+    return () => {
+      window.removeEventListener('focus', onFocus);
+      window.removeEventListener('blur', onBlur);
+    };
+  }, [roomName]);
+
+  // Update the message handler
+  useEffect(() => {
+    api.onNewMessage((message) => {
+      console.log('New message received in ChatRoom:', message);
+      
+      // Check for mentions
+      if (message.content.includes(`@${username}@`) && message.username !== username) {
+        sendNotification(message.username, message.content);
+      }
+
+      setMessages(prevMessages => {
+        // Only add server messages that aren't already in the list
+        const messageExists = prevMessages.some(m => 
+          m.id === message.id || 
+          (m.content === message.content && 
+           m.username === message.username && 
+           !m.id) // Check for optimistically added messages
+        );
+        
+        if (messageExists) {
+          // Update the optimistic message with the server data
+          return prevMessages.map(m => 
+            (m.content === message.content && m.username === message.username && !m.id)
+              ? message 
+              : m
+          );
+        }
+        return [...prevMessages, message];
+      });
+    });
+
+    // Cleanup function
+    return () => {
+      document.title = 'Security Sketch'; // Reset title on unmount
+    };
+  }, [username, isWindowFocused]); // Add isWindowFocused to dependencies
 
   if (!isJoined) {
     return (
