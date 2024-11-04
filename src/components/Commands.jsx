@@ -13,6 +13,19 @@ export const COMMANDS = {
         messageType: 'command'
       };
     }
+  },
+  slap: {
+    description: 'Gently remind someone about security practices',
+    handler: (message) => {
+      const target = message.replace('/slap', '').trim();
+      if (!target) return null;
+      
+      return {
+        content: `waves a security policy document at ${target} while muttering about password complexity requirements`,
+        llm_required: false,
+        messageType: 'command'
+      };
+    }
   }
 };
 

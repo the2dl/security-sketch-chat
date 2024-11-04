@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode } from 'react-icons/fa';
+import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode, FaFileContract } from 'react-icons/fa';
 import { HiOutlineLogout, HiUserAdd } from 'react-icons/hi';
 import ConfirmCloseModal from './modals/ConfirmCloseModal';
 import SecretKeyModal from './modals/SecretKeyModal';
@@ -1241,7 +1241,11 @@ function ChatRoom() {
                       }`}>
                         {(msg.messageType === 'command' || msg.message_type === 'command') && (
                           <div className="absolute -top-2 -left-4 bg-base-200 rounded-full p-1 shadow-md z-10">
-                            <FaTerminal className="w-3 h-3 text-indigo-400" />
+                            {msg.content.includes('waves a security policy') ? (
+                              <FaFileContract className="w-3 h-3 text-indigo-400" />
+                            ) : (
+                              <FaTerminal className="w-3 h-3 text-indigo-400" />
+                            )}
                           </div>
                         )}
                         <div className={`rounded-lg whitespace-normal ${
@@ -1252,7 +1256,11 @@ function ChatRoom() {
                                 ? 'text-xs bg-success/10 text-success px-4 py-2 flex items-center gap-2'
                                 : 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
                             : msg.messageType === 'command' || msg.message_type === 'command'
-                              ? 'inline-block px-4 py-2 bg-indigo-400/20 text-indigo-400'
+                              ? `inline-block px-4 py-2 ${
+                                  msg.llm_required 
+                                    ? 'bg-purple-400/20 text-purple-300'  // Style for /include
+                                    : 'bg-indigo-400/20 text-indigo-400 italic'  // Style for other commands
+                                }`
                               : `inline-block px-4 py-2 ${
                                 msg.username === username 
                                   ? theme === 'black'
@@ -1263,19 +1271,24 @@ function ChatRoom() {
                                     : 'bg-gray-200 text-gray-800 shadow-md'
                               }`
                         }`}>
-                          {msg.type === 'file-upload' ? (
-                            <>
-                              <FaFileUpload className="w-3.5 h-3.5" />
-                              {msg.content}
-                            </>
-                          ) : msg.type === 'user-join' ? (
-                            <>
-                              <HiUserAdd className="w-3.5 h-3.5" />
-                              {msg.content}
-                            </>
-                          ) : (
-                            formatMessageContent(msg.content, username)
-                          )}
+                          {msg.messageType === 'command' || msg.message_type === 'command' 
+                            ? msg.llm_required
+                              ? (
+                                <>
+                                  <span className="text-xs font-medium mr-2">[AI Processing]</span>
+                                  {formatMessageContent(msg.content, username)}
+                                </>
+                              )
+                              : `* ${msg.username} ${msg.content}`
+                            : msg.type === 'file-upload' 
+                              ? (
+                                <>
+                                  <FaFileUpload className="w-3.5 h-3.5" />
+                                  {msg.content}
+                                </>
+                              ) 
+                              : formatMessageContent(msg.content, username)
+                          }
                         </div>
                       </div>
                     </div>
