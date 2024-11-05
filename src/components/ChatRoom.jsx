@@ -339,20 +339,19 @@ function ChatRoom() {
         });
       });
 
-      // Add this back
+      // More frequent keep-alive pings when active
       const keepAlivePing = setInterval(() => {
         if (isJoined && roomId && userId) {
           socket.emit('keep_alive', { roomId, userId });
         }
-      }, 5000);
+      }, 30000); // Every 30 seconds instead of 5 seconds
 
-      // Add this back
+      // Less frequent active users refresh
       const refreshInterval = setInterval(async () => {
         try {
           if (roomId && isJoined && userId) {
             const activeUsers = await api.getActiveUsers(roomId);
             setActiveUsers(prevUsers => {
-              // Only update if the list has actually changed
               const currentIds = prevUsers.map(u => u.id).sort().join(',');
               const newIds = activeUsers.map(u => u.id).sort().join(',');
               return currentIds !== newIds ? activeUsers : prevUsers;
@@ -361,7 +360,20 @@ function ChatRoom() {
         } catch (error) {
           console.error('Error refreshing active users:', error);
         }
-      }, 15000);
+      }, 60000); // Every minute instead of 15 seconds
+
+      // Add visibility change handler
+      const handleVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+          // Immediately ping and refresh when tab becomes visible
+          if (isJoined && roomId && userId) {
+            socket.emit('keep_alive', { roomId, userId });
+            api.getActiveUsers(roomId).then(setActiveUsers);
+          }
+        }
+      };
+
+      document.addEventListener('visibilitychange', handleVisibilityChange);
 
       // Add co-owner update listener
       api.onCoOwnerUpdated(({ userId, isCoOwner, coOwners }) => {
@@ -391,6 +403,7 @@ function ChatRoom() {
         api.disconnect();
         clearInterval(refreshInterval);
         clearInterval(keepAlivePing);
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
       };
     };
 

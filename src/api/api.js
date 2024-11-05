@@ -26,9 +26,12 @@ const initSocket = () => {
     socket = io('http://localhost:3000', {
       withCredentials: true,
       auth: { apiKey: API_KEY },
-      transports: ['websocket'],
+      transports: ['websocket', 'polling'],
       reconnection: true,
-      reconnectionAttempts: 5
+      reconnectionAttempts: Infinity,
+      reconnectionDelay: 1000,
+      reconnectionDelayMax: 30000,
+      timeout: 20000
     });
 
     socket.on('connect', () => {
@@ -50,6 +53,23 @@ const initSocket = () => {
 
     socket.on('error', (error) => {
       console.error('Socket error:', error);
+    });
+
+    socket.on('reconnecting', (attemptNumber) => {
+      console.log(`Socket attempting to reconnect: attempt ${attemptNumber}`);
+    });
+
+    socket.on('reconnect', (attemptNumber) => {
+      console.log(`Socket reconnected after ${attemptNumber} attempts`);
+      
+      // Re-join rooms after reconnection
+      const currentRooms = Object.keys(socket.rooms || {});
+      currentRooms.forEach(roomId => {
+        if (roomId !== socket.id) {
+          console.log('Rejoining room after reconnect:', roomId);
+          socket.emit('join_socket_room', { roomId });
+        }
+      });
     });
   }
   return socket;

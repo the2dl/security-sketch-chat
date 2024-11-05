@@ -242,13 +242,13 @@ io.on('connection', (socket) => {
     console.log(`Current sockets in room ${roomId}:`, Array.from(room || []));
   });
 
-  // Add keep_alive handler
+  // Update the keep_alive handler to use last_ping
   socket.on('keep_alive', async ({ roomId, userId }) => {
     try {
       await pool.query(
         `UPDATE room_participants 
          SET active = true, 
-             joined_at = CURRENT_TIMESTAMP
+             last_ping = CURRENT_TIMESTAMP
          WHERE room_id = $1 AND user_id = $2`,
         [roomId, userId]
       );
@@ -465,6 +465,7 @@ io.on('connection', (socket) => {
     }
   });
 
+  // Update the disconnect handler to be more tolerant
   socket.on('disconnect', async () => {
     try {
       if (socket.pingInterval) {
@@ -473,24 +474,23 @@ io.on('connection', (socket) => {
 
       const userData = socket.userData;
       if (userData) {
-        const { roomId, userId, username } = userData;
+        const { roomId, userId } = userData;
 
-        // Increase disconnect delay and add more robust checking
+        // Increase disconnect grace period to 2 minutes
         setTimeout(async () => {
           try {
-            // Check if user has reconnected
+            // Check if user has reconnected or pinged recently
             const activeCheck = await pool.query(
               `SELECT active, 
-                      EXTRACT(EPOCH FROM (NOW() - joined_at)) as seconds_since_join
+                      EXTRACT(EPOCH FROM (NOW() - last_ping)) as seconds_since_ping
                FROM room_participants 
                WHERE room_id = $1 AND user_id = $2`,
               [roomId, userId]
             );
 
-            // Only mark as inactive if they haven't reconnected and their last join
-            // was more than 5 seconds ago
+            // Only mark as inactive if they haven't pinged in the last 2 minutes
             if (activeCheck.rows[0]?.active && 
-                activeCheck.rows[0]?.seconds_since_join > 5) {
+                activeCheck.rows[0]?.seconds_since_ping > 120) {
               
               await pool.query(
                 `UPDATE room_participants 
@@ -499,7 +499,7 @@ io.on('connection', (socket) => {
                 [roomId, userId]
               );
 
-              // Get updated active users list
+              // Get updated active users with longer activity window
               const activeUsersResult = await pool.query(
                 `SELECT DISTINCT ON (u.id) 
                   u.id, 
@@ -511,9 +511,8 @@ io.on('connection', (socket) => {
                  JOIN users u ON rp.user_id = u.id
                  LEFT JOIN teams t ON rp.team_id = t.id
                  WHERE rp.room_id = $1 
-                 AND rp.active = true
-                 AND rp.joined_at > NOW() - INTERVAL '30 seconds'
-                 ORDER BY u.id, rp.joined_at DESC`,
+                 AND (rp.active = true OR rp.last_ping > NOW() - INTERVAL '2 minutes')
+                 ORDER BY u.id, rp.last_ping DESC`,
                 [roomId]
               );
 
@@ -531,7 +530,7 @@ io.on('connection', (socket) => {
           } catch (error) {
             console.error('Error in disconnect timeout:', error);
           }
-        }, 10000); // Increase to 10 seconds
+        }, 120000); // 2 minute grace period
       }
     } catch (error) {
       console.error('Error handling disconnect:', error);
