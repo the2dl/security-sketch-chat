@@ -16,7 +16,7 @@ import { FaRobot } from 'react-icons/fa';
 import { processCommand } from './Commands';
 import { FaTerminal, FaSlash } from 'react-icons/fa';
 import { COMMANDS } from './Commands';
-import { Helmet } from 'react-helmet';
+import { Helmet } from 'react-helmet-async';
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -213,6 +213,9 @@ function ChatRoom() {
         // Force rejoin socket room after room_joined event
         socket.emit('join_socket_room', { roomId });
         
+        // Send immediate keep-alive ping
+        socket.emit('keep_alive', { roomId, userId: newUserId });
+        
         setMessages(roomMessages || []);
         // Deduplicate users by username
         const uniqueUsers = roomUsers ? 
@@ -263,11 +266,26 @@ function ChatRoom() {
       api.onUserJoined((user, updatedActiveUsers) => {
         console.log('User joined, updated users:', updatedActiveUsers);
         if (updatedActiveUsers) {
-          // Deduplicate by username
-          const uniqueUsers = Array.from(
-            new Map(updatedActiveUsers.map(user => [user.username, user])).values()
-          );
-          setActiveUsers(uniqueUsers);
+          // Wrap in requestAnimationFrame to ensure DOM is ready
+          requestAnimationFrame(() => {
+            // Deduplicate by username
+            const uniqueUsers = Array.from(
+              new Map(updatedActiveUsers.map(user => [user.username, user])).values()
+            );
+            setActiveUsers(uniqueUsers);
+            
+            // Safely scroll to bottom
+            try {
+              if (messagesEndRef.current) {
+                messagesEndRef.current.scrollIntoView({ 
+                  behavior: 'smooth',
+                  block: 'end'
+                });
+              }
+            } catch (error) {
+              console.warn('Scroll error:', error);
+            }
+          });
         }
       });
 
@@ -344,7 +362,7 @@ function ChatRoom() {
         if (isJoined && roomId && userId) {
           socket.emit('keep_alive', { roomId, userId });
         }
-      }, 30000); // Every 30 seconds instead of 5 seconds
+      }, 5000); // Every 5 seconds for more responsive status updates
 
       // Less frequent active users refresh
       const refreshInterval = setInterval(async () => {
@@ -552,19 +570,32 @@ function ChatRoom() {
   };
 
   const scrollToBottom = () => {
-    if (messagesEndRef.current) {
-      messagesEndRef.current.scrollIntoView({ 
-        behavior: "auto",  // Changed from "smooth" to "auto" for initial load
-        block: "end"
-      });
-    }
+    requestAnimationFrame(() => {
+      try {
+        const messagesContainer = document.querySelector('.messages-container');
+        if (messagesContainer) {
+          messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+        if (messagesEndRef.current) {
+          messagesEndRef.current.scrollIntoView({ 
+            behavior: 'smooth',
+            block: 'end'
+          });
+        }
+      } catch (error) {
+        console.warn('Scroll error:', error);
+      }
+    });
   };
 
   useEffect(() => {
-    if (messages.length > 0 && isJoined) {
+    // Add a small delay to ensure the DOM has updated
+    const timeoutId = setTimeout(() => {
       scrollToBottom();
-    }
-  }, [isJoined, messages.length]); // Trigger when messages are loaded or user joins
+    }, 100);
+
+    return () => clearTimeout(timeoutId);
+  }, [messages]); // Only re-run when messages change
 
   useEffect(() => {
     if (isJoined) {
@@ -1162,6 +1193,66 @@ function ChatRoom() {
     };
   }, [username, isWindowFocused]); // Add isWindowFocused to dependencies
 
+  useEffect(() => {
+    if (isJoined && roomId && userId) {
+      // Send immediate keep-alive on join
+      api.sendKeepAlive({ roomId, userId });
+      
+      // Set up more frequent keep-alive pings
+      const keepAlivePing = setInterval(() => {
+        api.sendKeepAlive({ roomId, userId });
+      }, 3000); // Every 3 seconds
+
+      return () => clearInterval(keepAlivePing);
+    }
+  }, [isJoined, roomId, userId]);
+
+  // Add this effect to fetch all users when joining
+  useEffect(() => {
+    if (!isJoined || !roomId) return;
+
+    const fetchInitialUsers = async () => {
+      try {
+        const users = await api.getActiveUsers(roomId);
+        console.log('Initial users fetch:', users);
+        setActiveUsers(users);
+      } catch (error) {
+        console.error('Error fetching initial users:', error);
+      }
+    };
+
+    fetchInitialUsers();
+  }, [isJoined, roomId]);
+
+  // Update the socket event handlers
+  useEffect(() => {
+    if (!isJoined || !roomId) return;
+
+    api.onUserJoined((user, updatedActiveUsers) => {
+      console.log('User joined, updated users:', updatedActiveUsers);
+      if (updatedActiveUsers) {
+        setActiveUsers(prev => {
+          const existingUsers = new Map(prev.map(u => [u.id, u]));
+          updatedActiveUsers.forEach(user => existingUsers.set(user.id, user));
+          return Array.from(existingUsers.values());
+        });
+      }
+    });
+
+    api.onUpdateActiveUsers(({ activeUsers: updatedUsers }) => {
+      console.log('Active users updated:', updatedUsers);
+      if (updatedUsers) {
+        setActiveUsers(prev => {
+          const existingUsers = new Map(prev.map(u => [u.id, u]));
+          updatedUsers.forEach(user => existingUsers.set(user.id, user));
+          return Array.from(existingUsers.values());
+        });
+      }
+    });
+
+    // ... other event handlers ...
+  }, [isJoined, roomId]);
+
   if (!isJoined) {
     return (
       <div className="flex items-center justify-center min-h-[calc(100vh-8rem)] p-4">
@@ -1331,7 +1422,7 @@ function ChatRoom() {
             
             <hr className="border-base-300 my-2" />
             
-            <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0">
+            <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0 relative">
               {messages.map((msg, index) => (
                 <div key={msg.id || `temp-${index}`}>
                   {msg.isBot ? (
@@ -1425,7 +1516,7 @@ function ChatRoom() {
                   )}
                 </div>
               ))}
-              <div ref={messagesEndRef} />
+              <div ref={messagesEndRef} className="h-px" />
             </div>
 
             <form onSubmit={sendMessage} className="flex gap-2 items-start relative">

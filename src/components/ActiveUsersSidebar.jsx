@@ -1,8 +1,9 @@
 import { HiUserAdd } from 'react-icons/hi';
 import { FaFileUpload, FaTrash, FaRobot, FaSync, FaUserShield, FaUserCog, FaUserPlus, FaUserMinus } from 'react-icons/fa';
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
+import { api } from '../api/api';
 
 function ActiveUsersSidebar({ 
   activeUsers, 
@@ -33,6 +34,9 @@ function ActiveUsersSidebar({
   const [fileToDelete, setFileToDelete] = useState(null);
   const { theme } = useTheme();
   const [forceUpdate, setForceUpdate] = useState(false);
+  const [localActiveUsers, setLocalActiveUsers] = useState(activeUsers);
+  const previousActiveUsersRef = useRef(activeUsers);
+  const [showStatusMenu, setShowStatusMenu] = useState(false);
 
   useEffect(() => {
     const handleStorageChange = () => {
@@ -41,6 +45,52 @@ function ActiveUsersSidebar({
     window.addEventListener('storage', handleStorageChange);
     return () => window.removeEventListener('storage', handleStorageChange);
   }, []);
+
+  useEffect(() => {
+    if (!activeUsers) return;
+
+    console.log('ActiveUsersSidebar received activeUsers update:', activeUsers);
+    console.log('Previous local users state:', localActiveUsers);
+
+    setLocalActiveUsers(prevUsers => {
+      console.log('Updating local users. Previous state:', prevUsers);
+      
+      // Create a map of existing users for faster lookup
+      const existingUsersMap = new Map(
+        prevUsers?.map(user => [user.id, user]) || []
+      );
+      
+      console.log('Existing users map:', existingUsersMap);
+      
+      // Update or add new users
+      activeUsers.forEach(newUser => {
+        console.log('Processing user:', newUser);
+        const existingUser = existingUsersMap.get(newUser.id);
+        if (existingUser) {
+          console.log('Updating existing user:', existingUser);
+          existingUsersMap.set(newUser.id, {
+            ...existingUser,
+            ...newUser,
+            status: newUser.status !== existingUser.status ? newUser.status : existingUser.status
+          });
+        } else {
+          console.log('Adding new user:', newUser);
+          existingUsersMap.set(newUser.id, newUser);
+        }
+      });
+      
+      const updatedUsers = Array.from(existingUsersMap.values())
+        .sort((a, b) => {
+          const statusPriority = { active: 0, inactive: 1 };
+          return statusPriority[a.status] - statusPriority[b.status];
+        });
+
+      console.log('Final updated users:', updatedUsers);
+      return updatedUsers;
+    });
+    
+    previousActiveUsersRef.current = activeUsers;
+  }, [activeUsers]);
 
   const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 Bytes';
@@ -78,30 +128,40 @@ function ActiveUsersSidebar({
     return user.username;
   };
 
+  const getUserStatusClass = (user) => {
+    return user.status === 'active' 
+      ? 'bg-success text-success-content'
+      : 'bg-error text-error-content';
+  };
+
   const renderUserBadge = (user) => {
     const currentUserId = localStorage.getItem(`userId_${roomId}`);
     const isActualRoomOwner = currentUserId === roomOwnerId;
     const isUserRoomOwner = user.id === roomOwnerId;
     const isUserCoOwner = coOwners.includes(user.id);
-
-    // Theme-aware text color
-    const textColorClass = theme === 'corporate' ? 'text-primary' : 'text-purple-300';
+    const statusColor = getUserStatusClass(user);
+    const statusText = user.status === 'active' ? 'Active' : 'Inactive';
 
     return (
       <div 
         key={user.username}
         className="flex items-center gap-1.5 group"
       >
-        {/* User Badge Pill */}
         <div className="badge badge-primary bg-primary/10 border-primary/20 p-2 w-[180px] flex items-center justify-start">
-          <div className="w-1.5 h-1.5 bg-primary rounded-full shrink-0 mr-2"></div>
-          <FaUserCog className={`w-3.5 h-3.5 shrink-0 mr-2 ${textColorClass}`} />
-          <span className={`truncate ${textColorClass}`}>{formatUserDisplay(user)}</span>
+          <div className={`w-1.5 h-1.5 ${statusColor} rounded-full shrink-0 mr-2 tooltip tooltip-right`} 
+               data-tip={statusText}>
+          </div>
+          <FaUserCog className={`w-3.5 h-3.5 shrink-0 mr-2 ${
+            user.status === 'active' ? 'text-primary' : 'text-base-300'
+          }`} />
+          <span className={`truncate text-base-content/70 ${
+            user.status === 'inactive' ? 'opacity-50' : ''
+          }`}>
+            {formatUserDisplay(user)}
+          </span>
         </div>
 
-        {/* Icons Container */}
         <div className="flex items-center gap-1 shrink-0">
-          {/* Role Icons with Tooltips */}
           {isUserRoomOwner && (
             <div className="tooltip tooltip-top" data-tip="Room Owner">
               <FaUserShield 
@@ -117,7 +177,6 @@ function ActiveUsersSidebar({
             </div>
           )}
           
-          {/* Owner Controls */}
           {isActualRoomOwner && !isUserRoomOwner && (
             !isUserCoOwner ? (
               <button
@@ -144,28 +203,27 @@ function ActiveUsersSidebar({
 
   return (
     <div className="flex flex-col h-full">
-      {/* Active Users Section */}
       <div className="card-body">
         <div className="flex items-center gap-2 mb-3">
           <div className="w-2 h-2 bg-success rounded-full animate-pulse"></div>
           <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
-            Active Users ({activeUsers.length})
+            Active Users ({localActiveUsers.filter(u => u.status === 'active').length} online
+            {localActiveUsers.filter(u => u.status === 'inactive').length > 0 && 
+              `, ${localActiveUsers.filter(u => u.status === 'inactive').length} inactive`}
+            )
           </h3>
         </div>
         <div className="flex flex-col gap-1.5">
-          {/* Bot user - always shown first */}
           <div className={getBotBadgeStyles()}>
             <div className="w-1.5 h-1.5 bg-primary rounded-full shrink-0 mr-2"></div>
             <FaRobot className="w-3.5 h-3.5 shrink-0 mr-2" />
             <span className="truncate text-left">sketchy@system</span>
           </div>
           
-          {/* Existing user badges */}
-          {activeUsers.map(user => renderUserBadge(user))}
+          {localActiveUsers.map(user => renderUserBadge(user))}
         </div>
       </div>
 
-      {/* Evidence Files Section */}
       <div className="border-t border-base-300 pt-6 px-6 pb-6 flex-1">
         <div className="flex items-center justify-between mb-3">
           <div className="flex items-center gap-2">

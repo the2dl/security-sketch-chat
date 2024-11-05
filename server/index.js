@@ -216,6 +216,49 @@ User question: ${userQuestion}`;
   }
 });
 
+// Update the getActiveUsersForRoom function
+const getActiveUsersForRoom = async (roomId, pool) => {
+  const result = await pool.query(`
+    SELECT DISTINCT ON (u.id) 
+      u.id, 
+      u.username,
+      rp.active,
+      EXTRACT(EPOCH FROM (NOW() - rp.last_ping)) as seconds_since_ping,
+      t.id as team_id,
+      t.name as team_name,
+      t.description as team_description
+    FROM room_participants rp
+    JOIN users u ON rp.user_id = u.id
+    LEFT JOIN teams t ON rp.team_id = t.id
+    WHERE rp.room_id = $1 
+    AND (
+      rp.active = true 
+      OR rp.last_ping > NOW() - INTERVAL '24 hours'
+    )
+    ORDER BY u.id, rp.last_ping DESC
+  `, [roomId]);
+
+  return result.rows.map(user => ({
+    ...user,
+    status: calculateUserStatus(user.active, user.seconds_since_ping),
+    team: user.team_id ? {
+      id: user.team_id,
+      name: user.team_name,
+      description: user.team_description
+    } : null
+  }));
+};
+
+// Add this helper function to standardize status calculation
+const calculateUserStatus = (isActive, secondsSincePing, explicitStatus = null) => {
+  // First check if user has explicitly set their status
+  if (explicitStatus) return explicitStatus;
+  
+  // Then check time-based status
+  if (!isActive) return 'inactive';
+  return secondsSincePing > (15 * 60) ? 'away' : 'active';
+};
+
 // Socket.IO connection handling
 io.on('connection', (socket) => {
   console.log('New socket connection:', socket.id);
@@ -242,47 +285,56 @@ io.on('connection', (socket) => {
     console.log(`Current sockets in room ${roomId}:`, Array.from(room || []));
   });
 
-  // Update the keep_alive handler to use last_ping
+  // Update the keep_alive handler to be more efficient
   socket.on('keep_alive', async ({ roomId, userId }) => {
     try {
-      await pool.query(
-        `UPDATE room_participants 
-         SET active = true, 
-             last_ping = CURRENT_TIMESTAMP
-         WHERE room_id = $1 AND user_id = $2`,
-        [roomId, userId]
-      );
+      // Use a single query to update and get status
+      const result = await pool.query(`
+        WITH updated AS (
+          UPDATE room_participants 
+          SET last_ping = NOW(), active = true 
+          WHERE room_id = $1 AND user_id = $2
+          RETURNING user_id
+        )
+        SELECT u.id, u.username, true as active, 0 as seconds_since_ping,
+               t.id as team_id, t.name as team_name, t.description as team_description
+        FROM updated
+        JOIN users u ON updated.user_id = u.id
+        LEFT JOIN teams t ON t.id = (
+          SELECT team_id FROM room_participants 
+          WHERE room_id = $1 AND user_id = $2
+        )
+      `, [roomId, userId]);
+
+      if (result.rows[0]) {
+        // Emit immediate status update for this user only
+        const userData = {
+          ...result.rows[0],
+          status: 'active',
+          team: result.rows[0].team_id ? {
+            id: result.rows[0].team_id,
+            name: result.rows[0].team_name,
+            description: result.rows[0].team_description
+          } : null
+        };
+        
+        io.in(roomId).emit('user_status_update', userData);
+      }
     } catch (error) {
-      console.error('Error updating user activity:', error);
+      console.error('Error in keep_alive:', error);
     }
   });
 
-  socket.on('join_room', async ({ roomId, username, userId, secretKey, isOwner, team }) => {
+  socket.on('join_room', async ({ roomId, username, secretKey, userId, isOwner, team }) => {
     try {
       console.log('Join room request with team:', team);
-      
-      // Get team details if team ID is provided
-      let teamDetails = null;
-      if (team) {
-        const teamResult = await pool.query(
-          'SELECT id, name, description FROM teams WHERE id = $1',
-          [team]
-        );
-        if (teamResult.rows[0]) {
-          teamDetails = {
-            id: teamResult.rows[0].id,
-            name: teamResult.rows[0].name,
-            description: teamResult.rows[0].description
-          };
-        }
-      }
       
       // Explicitly join the socket room
       socket.join(roomId);
       socket.userData = { roomId, userId, username };
       console.log(`Socket ${socket.id} joined room ${roomId}`);
 
-      // First verify the room and secret key
+      // Verify room and secret key
       const roomResult = await pool.query(
         'SELECT * FROM rooms WHERE id = $1 AND secret_key = $2',
         [roomId, secretKey]
@@ -294,174 +346,57 @@ io.on('connection', (socket) => {
       }
 
       const room = roomResult.rows[0];
-      
-      let recoveryKey;
-      
-      if (userId) {
-        // For recovered sessions or owners
-        const participantResult = await pool.query(
-          'SELECT recovery_key FROM room_participants WHERE room_id = $1 AND user_id = $2',
-          [roomId, userId]
-        );
-        recoveryKey = participantResult.rows[0]?.recovery_key;
-        
-        if (!recoveryKey) {
-          // Generate new recovery key if none exists
-          recoveryKey = crypto.randomBytes(16).toString('hex');
-        }
-        
-        // Update participant with recovery key
-        await pool.query(
-          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key, team_id)
-           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3, $4)
-           ON CONFLICT (room_id, user_id) 
-           DO UPDATE SET active = true, joined_at = CURRENT_TIMESTAMP, recovery_key = $3, team_id = $4`,
-          [roomId, userId, recoveryKey, team]
-        );
-        
-      } else {
-        // For new users
-        recoveryKey = crypto.randomBytes(16).toString('hex');
-        const newUserId = uuidv4();
-        
-        // Create new user and participant records
-        await pool.query(
-          'INSERT INTO users (id, username) VALUES ($1, $2)',
-          [newUserId, username]
-        );
-        
-        await pool.query(
-          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key, team_id)
-           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3, $4)`,
-          [roomId, newUserId, recoveryKey, team]
-        );
-        
-        userId = newUserId;
-      }
 
-      // Get messages and active users
-      const messagesResult = await pool.query(
-        `SELECT m.*, u.username, m.message_type, t.id as team_id, t.name as team_name 
-         FROM messages m 
-         JOIN users u ON m.user_id = u.id 
-         LEFT JOIN room_participants rp ON rp.user_id = u.id AND rp.room_id = m.room_id
-         LEFT JOIN teams t ON rp.team_id = t.id
-         WHERE m.room_id = $1 
-         ORDER BY m.created_at ASC`,
-        [roomId]
-      );
+      // Immediately set user as active when joining
+      await pool.query(`
+        INSERT INTO room_participants (room_id, user_id, active, last_ping, team_id)
+        VALUES ($1, $2, true, NOW(), $3)
+        ON CONFLICT (room_id, user_id) 
+        DO UPDATE SET active = true, last_ping = NOW(), team_id = $3
+      `, [roomId, userId, team]);
 
-      const activeUsersResult = await pool.query(
-        `SELECT DISTINCT ON (u.id) 
-           u.id, 
-           u.username,
-           t.id as team_id,
-           t.name as team_name,
-           t.description as team_description
-         FROM users u 
-         JOIN room_participants rp ON u.id = rp.user_id 
-         LEFT JOIN teams t ON rp.team_id = t.id
-         WHERE rp.room_id = $1 AND rp.active = true
-         ORDER BY u.id, rp.joined_at DESC`,
-        [roomId]
-      );
+      // Get active users
+      const activeUsers = await getActiveUsersForRoom(roomId, pool);
 
-      console.log('Emitting room_joined with recovery key:', recoveryKey);
+      // Fetch recent messages
+      const messagesResult = await pool.query(`
+        SELECT m.*, u.username
+        FROM messages m
+        LEFT JOIN users u ON m.user_id = u.id
+        WHERE m.room_id = $1
+        ORDER BY m.created_at DESC
+        LIMIT 100
+      `, [roomId]);
 
-      // Determine if user is room owner or co-owner
-      const isRoomOwner = isOwner || 
-        (userId === room.owner_id) || 
-        (room.co_owners && room.co_owners.includes(userId));
-      
-      console.log('User owner status:', { 
-        userId, 
-        roomOwnerId: room.owner_id, 
-        isRoomOwner,
-        coOwners: room.co_owners 
-      });
-
-      // Get team name if team ID is provided
-      let teamName = 'sketch';
-      if (team) {
-        const teamResult = await pool.query(
-          'SELECT name FROM teams WHERE id = $1',
-          [team]
-        );
-        if (teamResult.rows[0]) {
-          teamName = teamResult.rows[0].name;
-        }
-      }
-
-      // Create join message with team name
-      const joinMessage = {
-        content: `${username}@${teamName} joined the investigation`,
-        username: 'system',
-        timestamp: new Date().toISOString(),
-        isSystem: true,
-        type: 'user-join',
-        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-      };
-
-      // Format messages with team information
-      const allMessages = messagesResult.rows.map(msg => ({
+      const messages = messagesResult.rows.map(msg => ({
         id: msg.id,
         content: msg.content,
         username: msg.username,
         timestamp: msg.created_at,
         messageType: msg.message_type,
-        llm_required: msg.llm_required,
-        team: msg.team_id ? {
-          id: msg.team_id,
-          name: msg.team_name
-        } : null
+        llm_required: msg.llm_required
       }));
 
-      // Add join message with team information
-      allMessages.push({
-        content: `${username}@${teamDetails?.name || 'sketch'} joined the investigation`,
-        username: 'system',
-        timestamp: new Date().toISOString(),
-        isSystem: true,
-        type: 'user-join',
-        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-        team: teamDetails
-      });
-
-      // Emit room_joined event with all necessary data INCLUDING the join message
+      // Emit room_joined event with all necessary data
       socket.emit('room_joined', {
-        messages: allMessages,
-        activeUsers: activeUsersResult.rows.map(user => ({
-          id: user.id,
-          username: user.username,
-          team: user.team_id ? {
-            id: user.team_id,
-            name: user.team_name,
-            description: user.team_description
-          } : null
-        })),
+        messages: messages.reverse(),
+        activeUsers: activeUsers,
         userId: userId,
         username: username,
         roomName: room.name,
-        recoveryKey: recoveryKey,
-        isRoomOwner: isRoomOwner,
-        team: teamDetails,
+        isRoomOwner: isOwner,
         coOwners: room.co_owners || [],
         room: {
           owner_id: room.owner_id
         }
       });
 
-      // Broadcast user joined to all OTHER clients in the room
-      socket.to(roomId).emit('new_message', joinMessage);
-      socket.to(roomId).emit('user_joined', {
-        userId: userId,
-        username: username,
-        team: teamDetails
-      });
+      // Only broadcast to OTHER clients that a new user joined
+      socket.broadcast.to(roomId).emit('update_active_users', { activeUsers });
 
     } catch (error) {
-      console.error('Error joining room:', error);
-      socket.emit('error', { message: 'Failed to join room' });
+      console.error('Error in join_room:', error);
+      socket.emit('error', 'Failed to join room');
     }
   });
 
@@ -476,7 +411,7 @@ io.on('connection', (socket) => {
       if (userData) {
         const { roomId, userId } = userData;
 
-        // Increase disconnect grace period to 2 minutes
+        // Increase disconnect grace period to 15 minutes
         setTimeout(async () => {
           try {
             // Check if user has reconnected or pinged recently
@@ -488,9 +423,9 @@ io.on('connection', (socket) => {
               [roomId, userId]
             );
 
-            // Only mark as inactive if they haven't pinged in the last 2 minutes
+            // Only mark as inactive if they haven't pinged in the last 15 minutes
             if (activeCheck.rows[0]?.active && 
-                activeCheck.rows[0]?.seconds_since_ping > 120) {
+                activeCheck.rows[0]?.seconds_since_ping > (15 * 60)) {  // 15 minutes in seconds
               
               await pool.query(
                 `UPDATE room_participants 
@@ -499,7 +434,7 @@ io.on('connection', (socket) => {
                 [roomId, userId]
               );
 
-              // Get updated active users with longer activity window
+              // Get updated active users
               const activeUsersResult = await pool.query(
                 `SELECT DISTINCT ON (u.id) 
                   u.id, 
@@ -511,7 +446,7 @@ io.on('connection', (socket) => {
                  JOIN users u ON rp.user_id = u.id
                  LEFT JOIN teams t ON rp.team_id = t.id
                  WHERE rp.room_id = $1 
-                 AND (rp.active = true OR rp.last_ping > NOW() - INTERVAL '2 minutes')
+                 AND (rp.active = true OR rp.last_ping > NOW() - INTERVAL '15 minutes')
                  ORDER BY u.id, rp.last_ping DESC`,
                 [roomId]
               );
@@ -530,7 +465,7 @@ io.on('connection', (socket) => {
           } catch (error) {
             console.error('Error in disconnect timeout:', error);
           }
-        }, 120000); // 2 minute grace period
+        }, 15 * 60 * 1000); // 15 minute grace period
       }
     } catch (error) {
       console.error('Error handling disconnect:', error);
@@ -569,6 +504,16 @@ io.on('connection', (socket) => {
       console.error('Error handling message:', error);
       socket.emit('error', { message: 'Failed to process message' });
     }
+  });
+
+  // Add handler for the new user_status_update event
+  socket.on('user_status_update', (userData) => {
+    // Update the specific user's status in activeUsers
+    setActiveUsers(prevUsers => {
+      return prevUsers.map(user => 
+        user.id === userData.id ? { ...user, ...userData } : user
+      );
+    });
   });
 });
 
@@ -747,30 +692,11 @@ app.get('/api/health', async (req, res) => {
   }
 });
 
-// Add a new endpoint to get active users
+// Update the users endpoint
 app.get('/api/rooms/:roomId/users', async (req, res) => {
   try {
-    const activeUsersResult = await pool.query(
-      `SELECT DISTINCT ON (u.username) 
-        u.id, 
-        u.username,
-        t.id as team_id,
-        t.name as team_name
-       FROM room_participants rp
-       JOIN users u ON rp.user_id = u.id
-       LEFT JOIN teams t ON rp.team_id = t.id
-       WHERE rp.room_id = $1 AND rp.active = true
-       ORDER BY u.username, rp.joined_at DESC`,
-      [req.params.roomId]
-    );
-
-    // Format the response to match the socket format
-    const formattedUsers = activeUsersResult.rows.map(user => ({
-      ...user,
-      team: user.team_id ? { id: user.team_id, name: user.team_name } : null
-    }));
-
-    res.json(formattedUsers);
+    const users = await getActiveUsersForRoom(req.params.roomId, pool);
+    res.json(users);
   } catch (error) {
     console.error('Error fetching active users:', error);
     res.status(500).json({ error: 'Failed to fetch active users' });
@@ -1538,4 +1464,55 @@ app.put('/api/prompts', async (req, res) => {
     res.status(500).json({ error: 'Failed to update prompts' });
   }
 });
+
+// Update the checkInactiveUsers function to only handle active/inactive states
+const checkInactiveUsers = async () => {
+  try {
+    const result = await pool.query(`
+      WITH updated AS (
+        UPDATE room_participants 
+        SET active = false 
+        WHERE active = true 
+        AND last_ping < NOW() - INTERVAL '15 minutes'
+        RETURNING room_id, user_id
+      )
+      SELECT DISTINCT u.id, u.username, rp.room_id, rp.active,
+             EXTRACT(EPOCH FROM (NOW() - rp.last_ping)) as seconds_since_ping,
+             t.id as team_id, t.name as team_name,
+             t.description as team_description
+      FROM room_participants rp
+      JOIN users u ON rp.user_id = u.id
+      LEFT JOIN teams t ON rp.team_id = t.id
+      WHERE rp.room_id IN (SELECT DISTINCT room_id FROM updated)
+    `);
+
+    // Simplify status to just active/inactive
+    const roomGroups = result.rows.reduce((acc, row) => {
+      if (!acc[row.room_id]) acc[row.room_id] = [];
+      acc[row.room_id].push({
+        ...row,
+        status: row.active ? 'active' : 'inactive',
+        team: row.team_id ? {
+          id: row.team_id,
+          name: row.team_name,
+          description: row.team_description
+        } : null
+      });
+      return acc;
+    }, {});
+
+    Object.entries(roomGroups).forEach(([roomId, users]) => {
+      io.to(roomId).emit('update_active_users', { activeUsers: users });
+    });
+  } catch (error) {
+    console.error('Error checking inactive users:', error);
+  }
+};
+
+// Remove the status update endpoint
+// Remove this endpoint:
+// app.put('/api/rooms/:roomId/users/:userId/status', validateApiKey, async (req, res) => { ... });
+
+// Increase the interval to reduce unnecessary checks
+setInterval(checkInactiveUsers, 30000); // Every 30 seconds
 

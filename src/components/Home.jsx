@@ -4,7 +4,7 @@ import { api } from '../api/api';
 import { formatDistanceToNow } from 'date-fns';
 import { v4 as uuidv4 } from 'uuid';
 import { io } from 'socket.io-client';
-import { Helmet } from 'react-helmet';
+import { Helmet } from 'react-helmet-async';
 
 function Home() {
   const [sketchName, setSketchName] = useState('');

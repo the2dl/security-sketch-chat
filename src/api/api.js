@@ -108,12 +108,6 @@ const joinRoom = (roomId, username, secretKey, userId = null, isOwner = false, t
         if (data.userId) {
           localStorage.setItem(`userId_${roomId}`, data.userId);
         }
-        if (data.recoveryKey) {
-          localStorage.setItem(`recoveryKey_${roomId}`, data.recoveryKey);
-        }
-        if (data.team) {
-          localStorage.setItem(`team_${roomId}`, JSON.stringify(data.team));
-        }
         resolve(data);
       });
 
@@ -235,6 +229,9 @@ const getActiveUsers = async (roomId) => {
 // Add cleanup function
 const cleanup = () => {
   if (!socket) return;
+  if (socket.keepAliveInterval) {
+    clearInterval(socket.keepAliveInterval);
+  }
   socket.off('room_joined');
   socket.off('new_message');
   socket.off('user_joined');
@@ -252,7 +249,7 @@ const disconnect = () => {
 };
 
 // Create new room
-export const api = {
+const apiInstance = {
   initSocket,
   joinRoom,
   leaveRoom,
@@ -664,4 +661,25 @@ export const api = {
     
     return response.json();
   },
+
+  // Add this new method to your api object
+  sendKeepAlive: ({ roomId, userId }) => {
+    if (!socket) {
+      socket = initSocket();
+    }
+    
+    // Add error handling and retry logic
+    const emitKeepAlive = () => {
+      if (socket.connected) {
+        socket.emit('keep_alive', { roomId, userId });
+      } else {
+        // If socket isn't connected, retry in 1 second
+        setTimeout(emitKeepAlive, 1000);
+      }
+    };
+    
+    emitKeepAlive();
+  },
 };
+
+export { apiInstance as api };
