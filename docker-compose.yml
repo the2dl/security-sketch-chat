@@ -13,11 +13,42 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./db/schema.sql:/docker-entrypoint-initdb.d/schema.sql
+    networks:
+      - timesketch-network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U sketch_user -d security_sketch"]
       interval: 5s
       timeout: 5s
       retries: 5
+
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.node
+    container_name: security-sketch-api
+    environment:
+      - DB_HOST=security-sketch-db
+      - DB_USER=sketch_user
+      - DB_PASSWORD=f0audfh8389r3z
+      - DB_NAME=security_sketch
+      - DB_PORT=5432
+      - NODE_ENV=production
+      - TIMESKETCH_API_URL=http://timesketch-api:5001
+    env_file: .env
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./server/uploads:/app/uploads
+    depends_on:
+      db:
+        condition: service_healthy
+    networks:
+      - timesketch-network
+
+networks:
+  timesketch-network:
+    name: timesketch-network
+    external: true
 
 volumes:
   postgres_data:

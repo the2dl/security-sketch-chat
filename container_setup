@@ -3,61 +3,118 @@
 # Colors for output
 GREEN='\033[0;32m'
 RED='\033[0;31m'
+YELLOW='\033[1;33m'
 NC='\033[0m' # No Color
 
-# Function to start everything
-setup() {
-    echo -e "${GREEN}Starting setup...${NC}"
+# Function to reset and import database
+reset_db() {
+    echo -e "${YELLOW}Resetting database...${NC}"
     
-    # 1. Create the network if it doesn't exist
-    echo "Creating timesketch network..."
-    docker network create timesketch-network || true
-
-    # 2. Start the PostgreSQL container using docker-compose
-    echo "Starting PostgreSQL container..."
-    docker-compose up -d db
-
-    # 3. Wait for PostgreSQL to be healthy
-    echo "Waiting for PostgreSQL to be ready..."
+    # Wait for PostgreSQL to be ready
     until docker-compose exec db pg_isready -U sketch_user -d security_sketch
     do
         echo "PostgreSQL is unavailable - sleeping"
         sleep 1
     done
+    
+    # Drop all tables first to ensure clean state
+    echo "Dropping existing tables..."
+    docker-compose exec db psql -U sketch_user -d security_sketch -c "
+        DO \$\$
+        DECLARE
+            r RECORD;
+        BEGIN
+            FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') LOOP
+                EXECUTE 'DROP TABLE IF EXISTS ' || quote_ident(r.tablename) || ' CASCADE';
+            END LOOP;
+        END \$\$;
+    "
+    
+    # Add extension before import
+    echo "Setting up database permissions..."
+    docker-compose exec db psql -U sketch_user -d security_sketch -c "CREATE EXTENSION IF NOT EXISTS \"uuid-ossp\" WITH SCHEMA public;"
+    
+    # Convert CRLF to LF if needed (Windows line endings can cause issues)
+    echo "Preparing schema file..."
+    tr -d '\r' < database_dump.sql > database_dump_unix.sql
+    
+    # Import the schema with verbose output and error checking
+    echo "Importing database schema..."
+    if ! docker-compose exec -T db psql -U sketch_user -d security_sketch -v ON_ERROR_STOP=1 < database_dump_unix.sql; then
+        echo -e "${RED}Error importing database schema${NC}"
+        exit 1
+    fi
+    
+    # Verify tables were created
+    echo "Verifying database tables..."
+    docker-compose exec db psql -U sketch_user -d security_sketch -c "\dt"
+    
+    # Verify specific tables and their structure
+    for table in rooms users messages room_participants
+    do
+        echo -e "\nVerifying $table table structure..."
+        docker-compose exec db psql -U sketch_user -d security_sketch -c "\d $table"
+    done
+    
+    echo -e "${GREEN}Database reset and import complete!${NC}"
+}
 
-    # 4. Connect PostgreSQL container to the network
-    echo "Connecting PostgreSQL to timesketch network..."
-    docker network connect timesketch-network security-sketch-db || true
+# Function to start everything
+setup() {
+    echo -e "${GREEN}Starting setup...${NC}"
+    
+    # Create required directories
+    echo "Creating required directories..."
+    mkdir -p server/uploads
+    chmod 777 server/uploads
+    
+    # 1. Create the network if it doesn't exist
+    echo "Creating timesketch network..."
+    docker network create timesketch-network || true
 
-    # 5. Start the timesketch-api container with both operators
-    echo "Starting timesketch-api container..."
+    # 2. Start the PostgreSQL and API containers using docker-compose
+    echo "Starting PostgreSQL and API containers..."
+    docker-compose up -d --build
+
+    # 3. Wait for PostgreSQL to be healthy and reset database if requested
+    if [ "$1" = "reset" ]; then
+        reset_db
+    fi
+
+    # 4. Build and start the timesketch-api container
+    echo "Building and starting timesketch-api container..."
+    docker build -t timesketch-api -f Dockerfile .
     docker run -d \
         --name timesketch-api \
         --network timesketch-network \
         --add-host=host.docker.internal:host-gateway \
         --env-file .env \
         -p 5001:5001 \
-        timesketch-cli
+        timesketch-api
+
+    # Add a small delay to ensure timesketch-api is ready
+    sleep 5
+
+    # Start the API container last
+    docker-compose up -d api
 
     echo -e "${GREEN}Setup complete!${NC}"
     
-    # Show container status and follow logs
+    # Show container status
     echo -e "\nContainer Status:"
     docker ps
-    echo -e "\nFollowing logs (Ctrl+C to exit)..."
-    docker logs -f timesketch-api
 }
 
 # Function to remove everything
 remove() {
     echo -e "${RED}Starting removal...${NC}"
     
-    # 1. Stop and remove timesketch-api
-    echo "Removing timesketch-api container..."
-    docker rm -f timesketch-api 2>/dev/null || true
+    # 1. Stop and remove all containers
+    echo "Removing containers..."
+    docker rm -f timesketch-api security-sketch-api 2>/dev/null || true
     
-    # 2. Stop PostgreSQL
-    echo "Stopping PostgreSQL container..."
+    # 2. Stop all docker-compose services
+    echo "Stopping docker-compose services..."
     docker-compose down
     
     # 3. Remove network
@@ -73,9 +130,10 @@ remove() {
 
 # Show usage if no arguments provided
 if [ $# -eq 0 ]; then
-    echo "Usage: $0 [setup|remove]"
-    echo "  setup  - Start all containers and setup network"
-    echo "  remove - Stop and remove all containers and network"
+    echo "Usage: $0 [setup|setup-reset|remove]"
+    echo "  setup       - Start all containers and setup network"
+    echo "  setup-reset - Start all containers, reset database, and import schema"
+    echo "  remove      - Stop and remove all containers and network"
     exit 1
 fi
 
@@ -83,6 +141,9 @@ fi
 case "$1" in
     setup)
         setup
+        ;;
+    setup-reset)
+        setup "reset"
         ;;
     remove)
         read -p "Are you sure you want to remove all containers? (y/N) " -n 1 -r
@@ -95,7 +156,7 @@ case "$1" in
         ;;
     *)
         echo "Invalid option: $1"
-        echo "Usage: $0 [setup|remove]"
+        echo "Usage: $0 [setup|setup-reset|remove]"
         exit 1
         ;;
 esac

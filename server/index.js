@@ -76,12 +76,11 @@ io.use((socket, next) => {
 
 // Database connection
 const pool = new Pool({
-  user: 'sketch_user',
-  host: 'localhost',
-  database: 'security_sketch',
-  password: 'f0audfh8389r3z',
-  port: 5432,
-  // Add these options for better connection handling
+  user: process.env.DB_USER,
+  host: process.env.DB_HOST,
+  database: process.env.DB_NAME,
+  password: process.env.DB_PASSWORD,
+  port: process.env.DB_PORT,
   connectionTimeoutMillis: 5000,
   query_timeout: 10000
 });
@@ -259,9 +258,61 @@ const calculateUserStatus = (isActive, secondsSincePing, explicitStatus = null) 
   return secondsSincePing > (15 * 60) ? 'away' : 'active';
 };
 
-// Socket.IO connection handling
+// Add this at the top level to store the initial admin key
+let initialAdminKey = null;
+
+// Modify the initializeAdminKey function
+const initializeAdminKey = async () => {
+  try {
+    const result = await pool.query('SELECT admin_key, shown FROM platform_settings LIMIT 1');
+    if (result.rows.length === 0 || !result.rows[0].admin_key) {
+      const adminKey = crypto.randomBytes(32).toString('hex');
+      
+      await pool.query(
+        `INSERT INTO platform_settings (admin_key) 
+         VALUES ($1)
+         ON CONFLICT (id) 
+         DO UPDATE SET admin_key = $1, shown = false`,
+        [adminKey]
+      );
+      
+      console.log('Initial admin key generated:', adminKey);
+      initialAdminKey = adminKey;
+      
+      // Emit to any connected sockets immediately
+      io.emit('initial_admin_key', { adminKey });
+      
+      return adminKey;
+    }
+    
+    // If key exists but hasn't been shown, store it and emit
+    if (!result.rows[0].shown) {
+      initialAdminKey = result.rows[0].admin_key;
+      io.emit('initial_admin_key', { adminKey: result.rows[0].admin_key });
+    }
+    
+    return result.rows[0].admin_key;
+  } catch (error) {
+    console.error('Error initializing admin key:', error);
+    throw error;
+  }
+};
+
+// Modify the socket connection handler
 io.on('connection', (socket) => {
   console.log('New socket connection:', socket.id);
+  
+  // Check for unshown admin key immediately on connection
+  if (initialAdminKey) {
+    pool.query('SELECT shown FROM platform_settings WHERE admin_key = $1', [initialAdminKey])
+      .then(result => {
+        if (result.rows[0] && !result.rows[0].shown) {
+          console.log('Sending initial admin key to new connection');
+          socket.emit('initial_admin_key', { adminKey: initialAdminKey });
+        }
+      })
+      .catch(err => console.error('Error checking admin key status:', err));
+  }
   
   // Send the admin key only if it exists and hasn't been shown
   pool.query('SELECT admin_key, shown FROM platform_settings LIMIT 1')
@@ -576,7 +627,8 @@ app.post('/api/rooms', async (req, res) => {
 
     // Create Timesketch sketch after room is created
     console.log('Creating Timesketch sketch...');
-    const sketchResponse = await fetch('http://localhost:5001/api/sketch/create', {
+    const TIMESKETCH_API_URL = process.env.TIMESKETCH_API_URL || 'http://timesketch-api:5001';
+    const sketchResponse = await fetch(`${TIMESKETCH_API_URL}/api/sketch/create`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ name })
@@ -1050,37 +1102,6 @@ app.get('/api/files/:roomId/refresh', validateApiKey, async (req, res) => {
   }
 });
 
-// Generate initial admin key if none exists
-const initializeAdminKey = async () => {
-  try {
-    const result = await pool.query('SELECT admin_key FROM platform_settings LIMIT 1');
-    if (result.rows.length === 0) {
-      const adminKey = crypto.randomBytes(32).toString('hex');
-      await pool.query(
-        'INSERT INTO platform_settings (admin_key) VALUES ($1)',
-        [adminKey]
-      );
-      console.log('Initial admin key generated:', adminKey);
-      
-      // Broadcast to all connected sockets
-      const sockets = await io.fetchSockets();
-      console.log(`Broadcasting admin key to ${sockets.length} connected sockets`);
-      io.emit('initial_admin_key', { adminKey });
-      
-      return adminKey;
-    }
-    return result.rows[0].admin_key;
-  } catch (error) {
-    console.error('Error initializing admin key:', error);
-    throw error;
-  }
-};
-
-// Call this when server starts
-initializeAdminKey().then(key => {
-  console.log('Admin key verified/created');
-}).catch(console.error);
-
 // Verify admin key
 app.post('/api/admin/verify', async (req, res) => {
   try {
@@ -1248,15 +1269,16 @@ app.post('/api/admin/acknowledge-key', async (req, res) => {
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
   console.log(`Server running on port ${PORT}`);
-  await testDatabaseConnection();
-  await setupDatabase();
   
-  // Initialize admin key after server is listening
+  // Run all initialization tasks
   try {
-    const adminKey = await initializeAdminKey();
-    console.log('Admin key initialization completed');
+    await testDatabaseConnection();
+    await setupDatabase();
+    await initializeAdminKey();
+    console.log('Server initialization completed successfully');
   } catch (error) {
-    console.error('Failed to initialize admin key:', error);
+    console.error('Server initialization failed:', error);
+    process.exit(1);
   }
 });
 

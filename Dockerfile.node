@@ -1,0 +1,17 @@
+FROM node:18-slim
+
+WORKDIR /app
+
+# Install dependencies
+COPY package*.json ./
+RUN npm ci --only=production
+
+# Copy application files
+COPY server ./server
+
+# Create uploads directory
+RUN mkdir -p /app/uploads && chmod 777 /app/uploads
+
+EXPOSE 3000
+
+CMD ["node", "server/index.js"] 
