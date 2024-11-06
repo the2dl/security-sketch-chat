@@ -22,15 +22,25 @@ app.use((req, res, next) => {
 // Ensure API_KEY is properly loaded from environment
 const API_KEY = process.env.API_KEY;
 
-// Consolidate CORS configuration into a single instance
+// Update CORS configuration to allow any origin
 const corsOptions = {
-  origin: "http://localhost:3001",
+  origin: true, // This allows any origin
   methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
   credentials: true,
   allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
 };
 
 app.use(cors(corsOptions));
+
+// Update Socket.IO CORS configuration as well
+const io = new Server(server, {
+  cors: {
+    origin: true, // This allows any origin
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
+  }
+});
 
 // Add middleware to check API key
 const validateApiKey = (req, res, next) => {
@@ -45,15 +55,6 @@ const validateApiKey = (req, res, next) => {
 
 // Add validateApiKey middleware to all API routes
 app.use('/api', validateApiKey);
-
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3001",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
-    credentials: true,
-    allowedHeaders: ["Content-Type", "Authorization", "x-api-key"]
-  }
-});
 
 // Add this check
 if (!io) {

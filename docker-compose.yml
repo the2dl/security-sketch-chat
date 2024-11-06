@@ -45,6 +45,25 @@ services:
     networks:
       - timesketch-network
 
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile.react
+      args:
+        - REACT_APP_API_URL=http://localhost:3000
+        - REACT_APP_API_KEY=${API_KEY}
+        - REACT_APP_TIMESKETCH_HOST=${REACT_APP_TIMESKETCH_HOST}
+    container_name: security-sketch-frontend
+    environment:
+      - REACT_APP_API_KEY=${API_KEY}
+      - REACT_APP_TIMESKETCH_HOST=${REACT_APP_TIMESKETCH_HOST}
+    ports:
+      - "80:80"
+    networks:
+      - timesketch-network
+    depends_on:
+      - api
+
 networks:
   timesketch-network:
     name: timesketch-network

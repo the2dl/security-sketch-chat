@@ -6,6 +6,8 @@ let socket = null;
 // Add these constants at the top of the file
 const API_KEY = process.env.REACT_APP_API_KEY;
 const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
+const TIMESKETCH_HOST = process.env.REACT_APP_TIMESKETCH_HOST || 'http://localhost:5001';
 
 // Add the fetchWithAuth helper function
 const fetchWithAuth = async (url, options = {}) => {
@@ -23,7 +25,7 @@ const fetchWithAuth = async (url, options = {}) => {
 // Initialize socket connection
 const initSocket = () => {
   if (!socket) {
-    socket = io('http://localhost:3000', {
+    socket = io(SOCKET_URL, {
       withCredentials: true,
       auth: { apiKey: API_KEY },
       transports: ['websocket', 'polling'],
@@ -265,7 +267,7 @@ const apiInstance = {
   disconnect,
 
   createRoom: async (name, userId, username) => {
-    const response = await fetchWithAuth('http://localhost:3000/api/rooms', {
+    const response = await fetchWithAuth(`${API_URL}/api/rooms`, {
       method: 'POST',
       body: JSON.stringify({ name, userId, username }),
     });
@@ -359,8 +361,7 @@ const apiInstance = {
 
   // Add helper function to get sketch URL
   getSketchUrl: (sketchId) => {
-    const timesketchHost = process.env.REACT_APP_TIMESKETCH_HOST || 'http://localhost:5001';
-    return `${timesketchHost}/sketch/${sketchId}/explore`;
+    return `${TIMESKETCH_HOST}/sketch/${sketchId}/explore`;
   },
 
   // Add recoverSession function

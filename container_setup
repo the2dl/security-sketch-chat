@@ -38,12 +38,20 @@ reset_db() {
     echo "Preparing schema file..."
     tr -d '\r' < database_dump.sql > database_dump_unix.sql
     
+    # Add these lines before importing the schema
+    echo "Current database tables:"
+    docker-compose exec db psql -U sketch_user -d security_sketch -c "\dt"
+    
     # Import the schema with verbose output and error checking
     echo "Importing database schema..."
     if ! docker-compose exec -T db psql -U sketch_user -d security_sketch -v ON_ERROR_STOP=1 < database_dump_unix.sql; then
         echo -e "${RED}Error importing database schema${NC}"
         exit 1
     fi
+    
+    # After import, verify specific tables
+    echo "Verifying platform_settings table..."
+    docker-compose exec db psql -U sketch_user -d security_sketch -c "\d platform_settings"
     
     # Verify tables were created
     echo "Verifying database tables..."
@@ -72,16 +80,35 @@ setup() {
     echo "Creating timesketch network..."
     docker network create timesketch-network || true
 
-    # 2. Start the PostgreSQL and API containers using docker-compose
-    echo "Starting PostgreSQL and API containers..."
-    docker-compose up -d --build
+    # 2. Start database first
+    echo "Starting database container..."
+    docker-compose up -d db
 
-    # 3. Wait for PostgreSQL to be healthy and reset database if requested
+    # Wait for PostgreSQL to be healthy
+    echo "Waiting for PostgreSQL to be ready..."
+    until docker-compose exec db pg_isready -U sketch_user -d security_sketch
+    do
+        echo "PostgreSQL is unavailable - sleeping"
+        sleep 2
+    done
+    echo "PostgreSQL is ready!"
+
+    # 3. Reset database if requested
     if [ "$1" = "reset" ]; then
         reset_db
     fi
 
-    # 4. Build and start the timesketch-api container
+    # 4. Start API and wait for it to initialize
+    echo "Starting API container..."
+    docker-compose up -d api
+    echo "Waiting for API to initialize..."
+    sleep 10  # Give the API time to connect to DB and initialize
+
+    # 5. Start frontend
+    echo "Starting frontend container..."
+    docker-compose up -d frontend
+
+    # 6. Build and start the timesketch-api container
     echo "Building and starting timesketch-api container..."
     docker build -t timesketch-api -f Dockerfile .
     docker run -d \
@@ -91,12 +118,6 @@ setup() {
         --env-file .env \
         -p 5001:5001 \
         timesketch-api
-
-    # Add a small delay to ensure timesketch-api is ready
-    sleep 5
-
-    # Start the API container last
-    docker-compose up -d api
 
     echo -e "${GREEN}Setup complete!${NC}"
     
@@ -111,7 +132,7 @@ remove() {
     
     # 1. Stop and remove all containers
     echo "Removing containers..."
-    docker rm -f timesketch-api security-sketch-api 2>/dev/null || true
+    docker rm -f timesketch-api security-sketch-api security-sketch-frontend 2>/dev/null || true
     
     # 2. Stop all docker-compose services
     echo "Stopping docker-compose services..."
