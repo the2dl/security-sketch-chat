@@ -64,6 +64,13 @@ reset_db() {
         docker-compose exec db psql -U sketch_user -d security_sketch -c "\d $table"
     done
     
+    # Add this inside the reset_db() function, after the schema import
+    echo "Running database migrations..."
+    if ! docker-compose exec -T db psql -U sketch_user -d security_sketch -v ON_ERROR_STOP=1 < migrations.sql; then
+        echo -e "${RED}Error running migrations${NC}"
+        exit 1
+    fi
+    
     echo -e "${GREEN}Database reset and import complete!${NC}"
 }
 

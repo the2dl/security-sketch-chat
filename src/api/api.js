@@ -681,6 +681,46 @@ const apiInstance = {
     
     emitKeepAlive();
   },
+
+  checkAccessStatus: async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/access/status`);
+    if (!response.ok) {
+      throw new Error('Failed to check access status');
+    }
+    return response.json();
+  },
+
+  initializeAccess: async (accessWord) => {
+    const response = await fetchWithAuth(`${API_URL}/api/access/initialize`, {
+      method: 'POST',
+      body: JSON.stringify({ accessWord })
+    });
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Failed to initialize access');
+    }
+    return response.json();
+  },
+
+  verifyAccess: async (accessWord) => {
+    const response = await fetchWithAuth(`${API_URL}/api/access/verify`, {
+      method: 'POST',
+      body: JSON.stringify({ accessWord })
+    });
+    if (!response.ok) {
+      throw new Error('Failed to verify access');
+    }
+    return response.json();
+  },
+
+  // Add this to your apiInstance object
+  checkAdminKeyStatus: async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/admin/key-status`);
+    if (!response.ok) {
+      throw new Error('Failed to check admin key status');
+    }
+    return response.json();
+  },
 };
 
 export { apiInstance as api };

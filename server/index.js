@@ -1600,3 +1600,57 @@ const checkInactiveUsers = async () => {
 // Increase the interval to reduce unnecessary checks
 setInterval(checkInactiveUsers, 30000); // Every 30 seconds
 
+// Add these new endpoints near your other API routes
+app.post('/api/access/initialize', validateApiKey, async (req, res) => {
+  try {
+    const { accessWord } = req.body;
+    
+    // Check if access word already exists
+    const result = await pool.query('SELECT access_word FROM platform_settings LIMIT 1');
+    if (result.rows[0]?.access_word) {
+      return res.status(400).json({ error: 'Access word already set' });
+    }
+
+    // Set the access word
+    await pool.query(
+      `UPDATE platform_settings 
+       SET access_word = $1, 
+           access_word_set_at = CURRENT_TIMESTAMP
+       WHERE id = 1`,
+      [accessWord]
+    );
+
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error setting access word:', error);
+    res.status(500).json({ error: 'Failed to set access word' });
+  }
+});
+
+app.post('/api/access/verify', validateApiKey, async (req, res) => {
+  try {
+    const { accessWord } = req.body;
+    
+    const result = await pool.query('SELECT access_word FROM platform_settings LIMIT 1');
+    if (!result.rows[0]?.access_word) {
+      return res.status(404).json({ error: 'Access word not set' });
+    }
+
+    const isValid = result.rows[0].access_word === accessWord;
+    res.json({ valid: isValid });
+  } catch (error) {
+    console.error('Error verifying access word:', error);
+    res.status(500).json({ error: 'Failed to verify access word' });
+  }
+});
+
+app.get('/api/access/status', validateApiKey, async (req, res) => {
+  try {
+    const result = await pool.query('SELECT access_word IS NOT NULL as is_initialized FROM platform_settings LIMIT 1');
+    res.json({ initialized: result.rows[0]?.is_initialized || false });
+  } catch (error) {
+    console.error('Error checking access status:', error);
+    res.status(500).json({ error: 'Failed to check access status' });
+  }
+});
+
