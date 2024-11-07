@@ -473,9 +473,19 @@ io.on('connection', (socket) => {
         userId = newUserId;
       }
 
-      // Create join message
+      // Get team name if team ID is provided
+      let teamName = '';
+      if (team) {
+        const teamResult = await pool.query(
+          'SELECT name FROM teams WHERE id = $1',
+          [team]
+        );
+        teamName = teamResult.rows[0]?.name || '';
+      }
+
+      // Create join message with team name
       const joinMessage = {
-        content: `${username} joined the investigation`,
+        content: `${username}${teamName ? `@${teamName}` : ''} joined the investigation`,
         username: 'system',
         timestamp: new Date().toISOString(),
         isSystem: true,

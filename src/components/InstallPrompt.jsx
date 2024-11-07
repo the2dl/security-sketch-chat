@@ -32,11 +32,35 @@ function InstallPrompt() {
     });
   };
 
+  const handleClose = () => {
+    setShowPrompt(false);
+  };
+
   if (!showPrompt) return null;
 
   return (
     <div className="fixed bottom-4 right-4 bg-base-200 p-4 rounded-xl shadow-lg z-50">
-      <p className="mb-2">Install Security Sketch for easier access!</p>
+      <button 
+        onClick={handleClose}
+        className="absolute top-2 right-2 text-gray-500 hover:text-gray-700"
+        aria-label="Close"
+      >
+        <svg 
+          xmlns="http://www.w3.org/2000/svg" 
+          className="h-4 w-4" 
+          fill="none" 
+          viewBox="0 0 24 24" 
+          stroke="currentColor"
+        >
+          <path 
+            strokeLinecap="round" 
+            strokeLinejoin="round" 
+            strokeWidth={2} 
+            d="M6 18L18 6M6 6l12 12" 
+          />
+        </svg>
+      </button>
+      <p className="mb-2 pr-6">Install Security Sketch for easier access!</p>
       <button 
         onClick={handleInstallClick}
         className="btn btn-primary btn-sm"
