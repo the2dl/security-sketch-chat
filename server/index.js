@@ -429,9 +429,66 @@ io.on('connection', (socket) => {
         llm_required: msg.llm_required
       }));
 
-      // Emit room_joined event with all necessary data
+      let recoveryKey;
+      
+      if (userId) {
+        // For recovered sessions or owners
+        const participantResult = await pool.query(
+          'SELECT recovery_key FROM room_participants WHERE room_id = $1 AND user_id = $2',
+          [roomId, userId]
+        );
+        recoveryKey = participantResult.rows[0]?.recovery_key;
+        
+        if (!recoveryKey) {
+          // Generate new recovery key if none exists
+          recoveryKey = crypto.randomBytes(16).toString('hex');
+        }
+        
+        // Update participant with recovery key
+        await pool.query(
+          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key, team_id)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3, $4)
+           ON CONFLICT (room_id, user_id) 
+           DO UPDATE SET active = true, joined_at = CURRENT_TIMESTAMP, recovery_key = $3, team_id = $4`,
+          [roomId, userId, recoveryKey, team]
+        );
+        
+      } else {
+        // For new users
+        recoveryKey = crypto.randomBytes(16).toString('hex');
+        const newUserId = uuidv4();
+        
+        // Create new user and participant records
+        await pool.query(
+          'INSERT INTO users (id, username) VALUES ($1, $2)',
+          [newUserId, username]
+        );
+        
+        await pool.query(
+          `INSERT INTO room_participants (room_id, user_id, joined_at, active, recovery_key, team_id)
+           VALUES ($1, $2, CURRENT_TIMESTAMP, true, $3, $4)`,
+          [roomId, newUserId, recoveryKey, team]
+        );
+        
+        userId = newUserId;
+      }
+
+      // Create join message
+      const joinMessage = {
+        content: `${username} joined the investigation`,
+        username: 'system',
+        timestamp: new Date().toISOString(),
+        isSystem: true,
+        type: 'user-join',
+        id: `system-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+      };
+
+      // Add join message to messages array
+      const allMessages = [...messagesResult.rows, joinMessage];
+
+      // Emit room_joined event with all necessary data INCLUDING the join message
       socket.emit('room_joined', {
-        messages: messages.reverse(),
+        messages: allMessages,  // Note: this includes the join message
         activeUsers: activeUsers,
         userId: userId,
         username: username,
@@ -440,11 +497,16 @@ io.on('connection', (socket) => {
         coOwners: room.co_owners || [],
         room: {
           owner_id: room.owner_id
-        }
+        },
+        recoveryKey: recoveryKey
       });
 
-      // Only broadcast to OTHER clients that a new user joined
-      socket.broadcast.to(roomId).emit('update_active_users', { activeUsers });
+      // Broadcast user joined to all OTHER clients in the room
+      socket.to(roomId).emit('new_message', joinMessage);
+      socket.to(roomId).emit('user_joined', {
+        userId: userId,
+        username: username
+      });
 
     } catch (error) {
       console.error('Error in join_room:', error);
@@ -881,7 +943,7 @@ app.post('/api/sketch/import', async (req, res) => {
 });
 
 // Add new endpoint for recovery
-app.post('/api/rooms/:roomId/recover', async (req, res) => {
+app.post('/api/rooms/:roomId/recover', validateApiKey, async (req, res) => {
   const { recoveryKey } = req.body;
   
   try {
@@ -924,7 +986,6 @@ app.post('/api/rooms/:roomId/recover', async (req, res) => {
 
     const userData = result.rows[0];
     
-    // Add debug logging
     console.log('Recovery data:', {
       userId: userData.user_id,
       ownerId: userData.owner_id,
