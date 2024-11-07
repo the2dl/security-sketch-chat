@@ -5,9 +5,9 @@ let socket = null;
 
 // Add these constants at the top of the file
 const API_KEY = process.env.REACT_APP_API_KEY;
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-const SOCKET_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000';
-const TIMESKETCH_HOST = process.env.REACT_APP_TIMESKETCH_HOST || 'http://localhost:5001';
+const API_URL = process.env.REACT_APP_API_URL;
+const SOCKET_URL = process.env.REACT_APP_API_URL;
+const TIMESKETCH_HOST = process.env.REACT_APP_TIMESKETCH_HOST;
 
 // Add the fetchWithAuth helper function
 const fetchWithAuth = async (url, options = {}) => {
@@ -217,7 +217,7 @@ const onError = (callback) => {
 
 const getActiveUsers = async (roomId) => {
   try {
-    const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/users`);
+    const response = await fetchWithAuth(`${API_URL}/api/rooms/${roomId}/users`);
     if (!response.ok) {
       throw new Error('Failed to fetch active users');
     }
@@ -287,7 +287,7 @@ const apiInstance = {
   },
 
   getActiveRooms: async () => {
-    const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms`);
+    const response = await fetchWithAuth(`${API_URL}/api/rooms`);
 
     if (!response.ok) {
       throw new Error('Failed to fetch active rooms');
@@ -298,7 +298,7 @@ const apiInstance = {
 
   // Add getRoomDetails function
   getRoomDetails: async (roomId) => {
-    const response = await fetchWithAuth(`http://localhost:3000/api/rooms/${roomId}`);
+    const response = await fetchWithAuth(`${API_URL}/api/rooms/${roomId}`);
     
     if (!response.ok) {
       throw new Error('Failed to fetch room details');
@@ -317,7 +317,7 @@ const apiInstance = {
   // Add closeRoom function if not already present
   closeRoom: async (roomId) => {
     const userId = localStorage.getItem('userId');
-    const response = await fetchWithAuth(`http://localhost:3000/api/rooms/${roomId}/status`, {
+    const response = await fetchWithAuth(`${API_URL}/api/rooms/${roomId}/status`, {
       method: 'PUT',
       body: JSON.stringify({ active: false, userId }),
     });
@@ -334,7 +334,7 @@ const apiInstance = {
 
   // Add new Timesketch functions
   createSketch: async (name) => {
-    const response = await fetchWithAuth('http://localhost:3000/api/sketch/create', {
+    const response = await fetchWithAuth(`${API_URL}/api/sketch/create`, {
       method: 'POST',
       body: JSON.stringify({ name }),
     });
@@ -347,7 +347,7 @@ const apiInstance = {
   },
 
   importTimeline: async (sketchId, filePath) => {
-    const response = await fetchWithAuth('http://localhost:3000/api/sketch/import', {
+    const response = await fetchWithAuth(`${API_URL}/api/sketch/import`, {
       method: 'POST',
       body: JSON.stringify({ sketch_id: sketchId, file_path: filePath }),
     });
@@ -366,7 +366,7 @@ const apiInstance = {
 
   // Add recoverSession function
   recoverSession: async (roomId, recoveryKey) => {
-    const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/rooms/${roomId}/recover`, {
+    const response = await fetchWithAuth(`${API_URL}/api/rooms/${roomId}/recover`, {
       method: 'POST',
       body: JSON.stringify({ recoveryKey }),
     });
@@ -379,7 +379,7 @@ const apiInstance = {
   },
 
   uploadFile: async (formData, onProgress) => {
-    const response = await fetch(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/upload`, {
+    const response = await fetch(`${API_URL}/api/files/upload`, {
       method: 'POST',
       headers: {
         'x-api-key': API_KEY
@@ -402,7 +402,7 @@ const apiInstance = {
 
   getUploadedFiles: async (roomId) => {
     try {
-      const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/${roomId}`);
+      const response = await fetchWithAuth(`${API_URL}/api/files/${roomId}`);
 
       if (!response.ok) {
         throw new Error('Failed to fetch uploaded files');
@@ -419,7 +419,7 @@ const apiInstance = {
   downloadFile: async (fileId) => {
     try {
       const response = await fetch(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/download/${fileId}`,
+        `${API_URL}/api/files/download/${fileId}`,
         {
           headers: {
             'x-api-key': API_KEY
@@ -443,7 +443,7 @@ const apiInstance = {
   deleteFile: async (fileId) => {
     try {
       const response = await fetchWithAuth(
-        `${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/${fileId}`,
+        `${API_URL}/api/files/${fileId}`,
         {
           method: 'DELETE'
         }
@@ -464,7 +464,7 @@ const apiInstance = {
   sendMessageToBot: async (message, roomId, username) => {
     try {
       console.log('Sending bot message:', { message, roomId, username });
-      const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/chat/bot`, {
+      const response = await fetchWithAuth(`${API_URL}/api/chat/bot`, {
         method: 'POST',
         body: JSON.stringify({ message, roomId, username })
       });
@@ -484,7 +484,7 @@ const apiInstance = {
 
   refreshUploadedFiles: async (roomId) => {
     try {
-      const response = await fetchWithAuth(`${process.env.REACT_APP_API_URL || 'http://localhost:3000'}/api/files/${roomId}/refresh`);
+      const response = await fetchWithAuth(`${API_URL}/api/files/${roomId}/refresh`);
 
       if (!response.ok) {
         throw new Error('Failed to refresh uploaded files');

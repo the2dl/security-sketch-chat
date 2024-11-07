@@ -80,7 +80,7 @@ function Home() {
     if (!isChecking && (hasAccess || !isInitialized)) {
       console.log('Setting up socket connection for admin key...');
       
-      const socket = io('http://localhost:3000', {
+      const socket = io(process.env.REACT_APP_API_URL, {
         withCredentials: true,
         auth: { apiKey: process.env.REACT_APP_API_KEY },
         transports: ['websocket']
