@@ -72,13 +72,14 @@ class EvidenceProcessor:
             if result and result[0]:
                 self.evidence_processor_prompt = result[0]
                 logging.info("Successfully loaded evidence processor prompt")
+                return True
             else:
-                logging.error("No evidence processor prompt found in database")
-                raise ValueError("No evidence processor prompt found in database")
-                
+                logging.warning("No evidence processor prompt found in database yet")
+                return False
+            
         except Exception as e:
             logging.error(f"Error fetching evidence processor prompt: {e}")
-            raise
+            return False
         finally:
             if 'cur' in locals():
                 cur.close()
@@ -250,7 +251,10 @@ class EvidenceProcessor:
             )
 
             if results:
-                output_path = os.path.join(self.output_dir, f"evidence_{sketch_id}_{file_id}.jsonl")
+                # Create a new file with timestamp in name to prevent duplicates
+                timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                output_path = os.path.join(self.output_dir, f"evidence_{sketch_id}_{file_id}_{timestamp}.jsonl")
+                
                 with open(output_path, 'w') as f:
                     for result in results:
                         try:
@@ -338,6 +342,15 @@ class EvidenceProcessor:
         
         while True:
             try:
+                # Check for prompt if we don't have one
+                if not self.evidence_processor_prompt:
+                    if self.fetch_prompt():
+                        logging.info("Successfully retrieved prompt, continuing operation")
+                    else:
+                        logging.info("Still waiting for prompt to be configured...")
+                        sleep(60)  # Wait a minute before checking again
+                        continue
+
                 files = self.get_unprocessed_files()
                 for file_id, room_id, sketch_id, file_type, room_name in files:
                     logging.info(f"Processing file {file_id} for room {room_name}")

@@ -43,7 +43,7 @@ Important notes:
 3. Include timestamp from when the message was sent
 4. Use appropriate timestamp_desc values like "Network Connection", "DNS Activity", "Network Security", "Data Loss Prevention", "Process Execution", "Authentication"
 5. If multiple indicators are mentioned in a single message (like file paths AND hashes, or IPs AND ports), create separate entries for each indicator while maintaining the relationship in the message field
-6. If you see wording like "contain" or "network contain" and then a weird name like "ABC123" or "CPC1234" etc, these are most likely the hostname of the impacted machine.  Use the computer_name field for this
+6. If you see wording like "contain" or "network contain" and then a weird name like "ABC123" or "CPC1234" etc, these are most likely the hostname of the impacted machine.  Use the computer_name field for this. Do not ignore contain/containment language. This is related to remediation efforts.
 7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
 8. For file hashes, use md5_hash and sha256_hash fields accordingly
 9. For file paths, use the file_path field and include the computer_name if available

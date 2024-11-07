@@ -231,9 +231,12 @@ class SecuritySketchOperator:
         if not results:
             return False
 
-        file_path = self.get_sketch_file_path(sketch_id)
+        # Create a new file with timestamp in name to prevent duplicates
+        timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+        file_path = os.path.join(self.output_dir, f"chat_sketch_{sketch_id}_{timestamp}.jsonl")
+        
         try:
-            with open(file_path, 'a') as f:
+            with open(file_path, 'w') as f:  # Note: Changed from 'a' to 'w' since this is a new file
                 for result in results:
                     if result and isinstance(result, str) and result.strip():
                         try:
@@ -242,10 +245,10 @@ class SecuritySketchOperator:
                             f.write(f"{result}\n")
                         except json.JSONDecodeError:
                             logging.error(f"Invalid JSON: {result}")
-            return True
+            return file_path  # Return the path for import
         except Exception as e:
             logging.error(f"Error writing to JSONL: {e}")
-            return False
+            return None
 
     def get_new_messages(self):
         """Fetch new messages from database since last processed timestamp"""
@@ -336,13 +339,14 @@ class SecuritySketchOperator:
             if result and result[0]:
                 self.sketch_operator_prompt = result[0]
                 logging.info("Successfully loaded sketch operator prompt")
+                return True
             else:
-                logging.error("No sketch operator prompt found in database")
-                raise ValueError("No sketch operator prompt found in database")
-                
+                logging.warning("No sketch operator prompt found in database yet")
+                return False
+            
         except Exception as e:
             logging.error(f"Error fetching sketch operator prompt: {e}")
-            raise
+            return False
         finally:
             if 'cur' in locals():
                 cur.close()
@@ -474,6 +478,15 @@ class SecuritySketchOperator:
         
         while True:
             try:
+                # Check for prompt if we don't have one
+                if not self.sketch_operator_prompt:
+                    if self.fetch_prompt():
+                        logging.info("Successfully retrieved prompt, continuing operation")
+                    else:
+                        logging.info("Still waiting for prompt to be configured...")
+                        sleep(60)  # Wait a minute before checking again
+                        continue
+
                 logging.info("Fetching new messages...")
                 messages_by_room = self.get_new_messages()
                 
@@ -484,10 +497,12 @@ class SecuritySketchOperator:
                     results = self.analyze_messages({room_id: room_data})
                     
                     if results:
-                        file_path = self.get_sketch_file_path(sketch_id)
-                        if self.write_to_jsonl(results, sketch_id):
-                            # Import to Timesketch if we have new results
-                            self.import_to_timesketch(sketch_id, file_path)
+                        file_path = self.write_to_jsonl(results, sketch_id)
+                        if file_path:  # Only import if we have a valid file path
+                            if self.import_to_timesketch(sketch_id, file_path):
+                                logging.info(f"Successfully processed and imported data for room {room_data['name']}")
+                            else:
+                                logging.error(f"Failed to import data for room {room_data['name']}")
                 
                 logging.info(f"Sleeping for {interval_minutes} minutes...")
                 sleep(interval_minutes * 60)
