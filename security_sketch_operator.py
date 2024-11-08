@@ -13,11 +13,20 @@ from dotenv import load_dotenv
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] SecuritySketchOperator: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        log_obj = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "component": "SecuritySketchOperator",
+            "message": record.getMessage()
+        }
+        return json.dumps(log_obj)
+
+logging.basicConfig(level=logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
+logging.getLogger().handlers = [handler]
 
 # Configure Gemini API
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
@@ -417,8 +426,7 @@ class SecuritySketchOperator:
                     force_process=str(force_process)
                 )
 
-                logging.info(f"Sending to Gemini - Room: {room_data['name']}")
-                logging.info(f"Messages to analyze: {messages_text}")
+                logging.info(f"Analyzing messages for room: {room_data['name']}")
 
                 response = self.model.generate_content(
                     prompt,
@@ -427,9 +435,7 @@ class SecuritySketchOperator:
                 )
                 
                 if response.candidates:
-                    # Get the response and clean it up
                     response_text = response.candidates[0].content.parts[0].text.strip()
-                    logging.info(f"Gemini response: {response_text}")
                     
                     # Remove markdown code block formatting
                     response_text = response_text.replace('```jsonl', '')
@@ -437,7 +443,6 @@ class SecuritySketchOperator:
                     response_text = response_text.replace('```', '')
                     response_text = response_text.strip()
                     
-                    # Check if any messages require LLM processing
                     force_process = any(msg['llm_required'] for msg in room_data['messages'])
                     
                     if force_process:
@@ -512,9 +517,7 @@ class SecuritySketchOperator:
                 sleep(60)  # Sleep for 1 minute on error before retrying
 
 if __name__ == "__main__":
-    logging.info("=" * 80)
     logging.info("Starting Security Sketch Operator")
-    logging.info("=" * 80)
     
     # Validate required environment variables
     required_vars = ['API_KEY', 'DB_PASSWORD', 'GOOGLE_API_KEY']
@@ -533,7 +536,6 @@ if __name__ == "__main__":
         operator = SecuritySketchOperator()
         logging.info("Security Sketch Operator initialized successfully")
         logging.info("Starting main loop...")
-        logging.info("=" * 80)
         operator.run()
     except ValueError as e:
         logging.error(f"Initialization error: {e}")

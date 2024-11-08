@@ -124,6 +124,7 @@ setup() {
         --add-host=host.docker.internal:host-gateway \
         --env-file .env \
         -p 5001:5001 \
+        -v "$(pwd)/app/logs:/app/logs" \
         timesketch-api
 
     echo -e "${GREEN}Setup complete!${NC}"

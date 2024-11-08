@@ -16,11 +16,20 @@ import tempfile
 load_dotenv()
 
 # Configure logging
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s [%(levelname)s] EvidenceProcessor: %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S'
-)
+class JsonFormatter(logging.Formatter):
+    def format(self, record):
+        log_obj = {
+            "timestamp": self.formatTime(record, self.datefmt),
+            "level": record.levelname,
+            "component": "EvidenceProcessor",
+            "message": record.getMessage()
+        }
+        return json.dumps(log_obj)
+
+logging.basicConfig(level=logging.INFO)
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
+logging.getLogger().handlers = [handler]
 
 # Configure Gemini API
 GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
@@ -364,9 +373,7 @@ class EvidenceProcessor:
                 sleep(60)
 
 if __name__ == "__main__":
-    logging.info("=" * 80)
     logging.info("Starting Evidence Processor")
-    logging.info("=" * 80)
     
     required_vars = ['API_KEY', 'DB_PASSWORD', 'GOOGLE_API_KEY']
     missing_vars = [var for var in required_vars if not os.getenv(var)]
@@ -379,7 +386,6 @@ if __name__ == "__main__":
         processor = EvidenceProcessor()
         logging.info("Evidence Processor initialized successfully")
         logging.info("Starting main loop...")
-        logging.info("=" * 80)
         processor.run()
     except Exception as e:
         logging.error(f"Unexpected error: {e}")

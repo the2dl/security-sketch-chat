@@ -9,7 +9,7 @@ export const COMMANDS = {
     description: 'Force message to be analyzed by AI',
     handler: (message) => {
       const content = message.replace('/include', '').trim();
-      if (!content) return null; // Don't process empty messages
+      if (!content) return null;
       
       return {
         content,
@@ -46,18 +46,13 @@ export const COMMANDS = {
       
       try {
         const whoisData = await api.performWhois(domain);
-        console.log('Raw WHOIS data received by client:', whoisData);
-        
         const parsedData = parseWhoisData(whoisData);
-        console.log('Parsed WHOIS data:', parsedData);
-        
         const formattedResult = formatWhoisResult(parsedData);
-        console.log('Formatted WHOIS result:', formattedResult);
         
         if (formattedResult === 'No WHOIS data available') {
           return {
             content: `No WHOIS data found for domain: ${domain}`,
-            llm_required: false,
+            llm_required: true,
             messageType: 'command',
             isError: true
           };
@@ -65,13 +60,13 @@ export const COMMANDS = {
         
         return {
           content: `WHOIS lookup for ${domain}:\n\`\`\`\n\n${formattedResult}\n\n\`\`\``,
-          llm_required: false,
+          llm_required: true,
           messageType: 'command'
         };
       } catch (error) {
         return {
           content: `Error performing WHOIS lookup: ${error.message}`,
-          llm_required: false,
+          llm_required: true,
           messageType: 'command',
           isError: true
         };
@@ -93,19 +88,17 @@ export const COMMANDS = {
       
       try {
         const vtData = await api.performVTLookup(indicator);
-        console.log('Raw VT data received by client:', vtData);
-        
         const formattedResult = formatVTResult(vtData);
         
         return {
           content: `VirusTotal results for ${indicator}:\n\`\`\`\n${formattedResult}\n\`\`\``,
-          llm_required: false,
+          llm_required: true,
           messageType: 'command'
         };
       } catch (error) {
         return {
           content: `Error performing VirusTotal lookup: ${error.message}`,
-          llm_required: false,
+          llm_required: true,
           messageType: 'command',
           isError: true
         };
@@ -127,8 +120,6 @@ export const COMMANDS = {
       
       try {
         const ipData = await api.performIPLookup(ip);
-        console.log('IP data received by client:', ipData);
-        
         const formattedResult = [
           `IP: ${ipData.ip}`,
           `Hostname: ${ipData.hostname || 'N/A'}`,
@@ -140,13 +131,13 @@ export const COMMANDS = {
         
         return {
           content: `IP information for ${ip}:\n\`\`\`\n${formattedResult}\n\`\`\``,
-          llm_required: false,
+          llm_required: true,
           messageType: 'command'
         };
       } catch (error) {
         return {
           content: `Error performing IP lookup: ${error.message}`,
-          llm_required: false,
+          llm_required: true,
           messageType: 'command',
           isError: true
         };

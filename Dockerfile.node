@@ -5,6 +5,9 @@ WORKDIR /app
 # Create a specific directory for the server
 WORKDIR /app/server
 
+# Create logs directory with proper permissions
+RUN mkdir -p /app/logs && chmod 777 /app/logs
+
 # Copy only the server's package.json first
 COPY server/package.json ./
 
@@ -19,4 +22,5 @@ RUN mkdir -p uploads && chmod 777 uploads
 
 EXPOSE 3000
 
-CMD ["node", "index.js"] 
+# Use tee to write logs to both console and file
+CMD ["sh", "-c", "node index.js 2>&1 | tee -a /app/logs/client-api.log"] 

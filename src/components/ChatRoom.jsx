@@ -1529,9 +1529,7 @@ function ChatRoom() {
                       }`}>
                         {(msg.messageType === 'command' || msg.message_type === 'command') && (
                           <div className="absolute -top-2 -left-4 bg-base-200 rounded-full p-1 shadow-md z-10">
-                            {msg.llm_required ? (
-                              <FaRobot className="w-3 h-3 text-purple-400" />
-                            ) : msg.content.includes('IP information for') ? (
+                            {msg.content.includes('IP information for') ? (
                               <FaNetworkWired className="w-3 h-3 text-blue-400" />
                             ) : msg.content.includes('VirusTotal results') ? (
                               <SiVirustotal className="w-3 h-3 text-indigo-400" />
@@ -1539,6 +1537,8 @@ function ChatRoom() {
                               <TbWorldWww className="w-3 h-3 text-indigo-400" />
                             ) : msg.content.includes('waves a security policy') ? (
                               <FaFileContract className="w-3 h-3 text-indigo-400" />
+                            ) : msg.llm_required ? (
+                              <FaRobot className="w-3 h-3 text-purple-400" />
                             ) : (
                               <FaTerminal className="w-3 h-3 text-indigo-400" />
                             )}
@@ -1553,8 +1553,8 @@ function ChatRoom() {
                                 : 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
                             : msg.messageType === 'command' || msg.message_type === 'command'
                               ? `inline-block px-4 py-2 ${
-                                  msg.llm_required 
-                                    ? 'bg-purple-400/20 text-purple-300'  // Style for /include
+                                  msg.llm_required || msg.content.includes('/whois') || msg.content.includes('/vt') || msg.content.includes('/ipinfo')
+                                    ? 'bg-purple-400/20 text-purple-300'  // Style for LLM-required commands
                                     : 'bg-indigo-400/20 text-indigo-400 italic'  // Style for other commands
                                 }`
                               : `inline-block px-4 py-2 ${

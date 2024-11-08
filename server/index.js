@@ -59,11 +59,11 @@ app.use('/api', validateApiKey);
 
 // Add this check
 if (!io) {
-  console.error('Failed to initialize Socket.IO server');
+  logEvent('error', 'Failed to initialize Socket.IO server');
   process.exit(1);
 }
 
-console.log('Socket.IO server initialized successfully');
+logEvent('info', 'Socket.IO server initialized successfully');
 
 // Add authentication middleware for Socket.IO
 io.use((socket, next) => {
@@ -263,7 +263,31 @@ const calculateUserStatus = (isActive, secondsSincePing, explicitStatus = null) 
 // Add this at the top level to store the initial admin key
 let initialAdminKey = null;
 
-// Modify the initializeAdminKey function
+// Add this logging utility near the top of the file
+const logEvent = async (type, message, details = {}) => {
+  const logObj = {
+    timestamp: new Date().toISOString(),
+    level: type.toUpperCase(),
+    component: "SecuritySketchClientAPI",
+    message,
+    ...details
+  };
+  
+  const logString = JSON.stringify(logObj);
+  console.log(logString);  // Still log to console
+  
+  try {
+    // Append to log file
+    await fs.appendFile(
+      path.join('/app/logs/client-api.log'),
+      logString + '\n'
+    );
+  } catch (error) {
+    console.error('Failed to write to log file:', error);
+  }
+};
+
+// Replace console.log for admin key with redacted version
 const initializeAdminKey = async () => {
   try {
     const result = await pool.query('SELECT admin_key, shown FROM platform_settings LIMIT 1');
@@ -278,16 +302,14 @@ const initializeAdminKey = async () => {
         [adminKey]
       );
       
-      console.log('Initial admin key generated:', adminKey);
+      logEvent('info', 'Initial admin key generated', { keyLength: adminKey.length });
       initialAdminKey = adminKey;
       
-      // Emit to any connected sockets immediately
       io.emit('initial_admin_key', { adminKey });
       
       return adminKey;
     }
     
-    // If key exists but hasn't been shown, store it and emit
     if (!result.rows[0].shown) {
       initialAdminKey = result.rows[0].admin_key;
       io.emit('initial_admin_key', { adminKey: result.rows[0].admin_key });
@@ -295,47 +317,50 @@ const initializeAdminKey = async () => {
     
     return result.rows[0].admin_key;
   } catch (error) {
-    console.error('Error initializing admin key:', error);
+    logEvent('error', 'Error initializing admin key', { error: error.message });
     throw error;
   }
 };
 
 // Modify the socket connection handler
 io.on('connection', (socket) => {
-  console.log('New socket connection:', socket.id);
+  logEvent('info', 'New socket connection', { socketId: socket.id });
   
   // Check for unshown admin key immediately on connection
   if (initialAdminKey) {
     pool.query('SELECT shown FROM platform_settings WHERE admin_key = $1', [initialAdminKey])
       .then(result => {
         if (result.rows[0] && !result.rows[0].shown) {
-          console.log('Sending initial admin key to new connection');
+          logEvent('debug', 'Sending initial admin key to new connection', { socketId: socket.id });
           socket.emit('initial_admin_key', { adminKey: initialAdminKey });
         }
       })
-      .catch(err => console.error('Error checking admin key status:', err));
+      .catch(err => logEvent('error', 'Error checking admin key status', { error: err.message }));
   }
   
   // Send the admin key only if it exists and hasn't been shown
   pool.query('SELECT admin_key, shown FROM platform_settings LIMIT 1')
     .then(result => {
       if (result.rows[0]?.admin_key && !result.rows[0]?.shown) {
-        console.log('Sending admin key to new connection');
+        logEvent('debug', 'Sending admin key to new connection', { socketId: socket.id });
         socket.emit('initial_admin_key', { adminKey: result.rows[0].admin_key });
       }
     })
-    .catch(err => console.error('Error fetching admin key for new socket:', err));
+    .catch(err => logEvent('error', 'Error fetching admin key for new socket', { error: err.message }));
 
   console.log('User connected:', socket.id);
 
   // Add new handler for explicit room joining
   socket.on('join_socket_room', ({ roomId }) => {
-    console.log(`Socket ${socket.id} joining room ${roomId}`);
+    logEvent('info', 'Socket joining room', { socketId: socket.id, roomId });
     socket.join(roomId);
     
     // Log all sockets in this room
     const room = io.sockets.adapter.rooms.get(roomId);
-    console.log(`Current sockets in room ${roomId}:`, Array.from(room || []));
+    logEvent('debug', 'Current sockets in room', { 
+      roomId, 
+      socketCount: room ? room.size : 0 
+    });
   });
 
   // Update the keep_alive handler to be more efficient
@@ -598,13 +623,14 @@ io.on('connection', (socket) => {
   });
   socket.on('send_message', async ({ roomId, username, content, userId, llm_required, messageType }) => {
     try {
-      console.log('Received message:', { roomId, username, content, messageType, llm_required });
-      
-      // Log room membership before broadcasting
-      const room = io.sockets.adapter.rooms.get(roomId);
-      console.log(`Broadcasting to room ${roomId}. Current members:`, Array.from(room || []));
+      logEvent('info', 'Message received', { 
+        roomId, 
+        username, 
+        userId,
+        messageType,
+        contentLength: content.length 
+      });
 
-      // Regular message handling
       const result = await pool.query(
         `INSERT INTO messages (room_id, user_id, content, created_at, llm_required, message_type)
          VALUES ($1, $2, $3, CURRENT_TIMESTAMP, $4, $5)
@@ -618,15 +644,20 @@ io.on('connection', (socket) => {
         username,
         timestamp: result.rows[0].created_at,
         messageType,
-        llm_required  // Add this explicitly
+        llm_required
       };
 
-      // Emit to all sockets in the room
       io.to(roomId).emit('new_message', messageData);
-      console.log(`Message broadcast to room ${roomId}:`, messageData);
+      logEvent('debug', 'Message broadcast complete', { 
+        roomId, 
+        messageId: result.rows[0].id 
+      });
 
     } catch (error) {
-      console.error('Error handling message:', error);
+      logEvent('error', 'Error handling message', { 
+        error: error.message,
+        roomId
+      });
       socket.emit('error', { message: 'Failed to process message' });
     }
   });
@@ -764,7 +795,7 @@ app.get('/api/rooms/:roomId', async (req, res) => {
 
 app.get('/api/rooms', async (req, res) => {
   try {
-    console.log('Fetching rooms...');
+    logEvent('debug', 'Fetching rooms');
     
     const result = await pool.query(`
       SELECT 
@@ -779,15 +810,18 @@ app.get('/api/rooms', async (req, res) => {
       ORDER BY r.created_at DESC
     `);
     
-    console.log('Rooms query result:', result.rows);
+    logEvent('debug', 'Rooms query completed', { 
+      count: result.rows.length 
+    });
     
-    // Always return an array, even if empty
     res.json(result.rows || []);
     
   } catch (error) {
-    console.error('Database error when fetching rooms:', error);
+    logEvent('error', 'Database error when fetching rooms', { 
+      error: error.message,
+      code: error.code 
+    });
     
-    // Check if it's a connection error
     if (error.code === 'ECONNREFUSED') {
       return res.status(500).json({ 
         error: 'Database connection failed',
@@ -795,7 +829,6 @@ app.get('/api/rooms', async (req, res) => {
       });
     }
     
-    // For other database errors
     res.status(500).json({ 
       error: 'Failed to fetch rooms',
       details: error.message
@@ -1341,50 +1374,33 @@ app.post('/api/admin/acknowledge-key', async (req, res) => {
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, async () => {
-  console.log(`Server running on port ${PORT}`);
+  logEvent('info', 'Server starting', { port: PORT });
   
   // Run all initialization tasks
   try {
     await testDatabaseConnection();
     await setupDatabase();
     await initializeAdminKey();
-    console.log('Server initialization completed successfully');
+    logEvent('info', 'Server initialization completed successfully');
   } catch (error) {
-    console.error('Server initialization failed:', error);
+    logEvent('error', 'Server initialization failed', { error: error.message });
     process.exit(1);
   }
 });
 
-// Add pool error handler
-pool.on('error', (err) => {
-  console.error('Unexpected database error:', err);
-});
-
-// Test database connection on startup
+// Update database connection logging
 async function testDatabaseConnection() {
   try {
     const client = await pool.connect();
-    console.log('Successfully connected to PostgreSQL');
+    logEvent('info', 'Successfully connected to PostgreSQL');
     await client.release();
   } catch (err) {
-    console.error('Failed to connect to PostgreSQL:', err);
-    process.exit(1); // Exit if we can't connect to the database
+    logEvent('error', 'Failed to connect to PostgreSQL', { error: err.message });
+    process.exit(1);
   }
 }
 
-// Add this helper function
-function generateSecureKey(length = 12) {
-  try {
-    return crypto.randomBytes(length).toString('hex');
-  } catch (error) {
-    console.error('Error generating secure key:', error);
-    // Fallback to a simpler method if crypto fails
-    return Math.random().toString(36).slice(2) + 
-           Math.random().toString(36).slice(2);
-  }
-}
-
-// Add this to your database initialization or as a separate setup script
+// Update database setup logging
 async function setupDatabase() {
   try {
     const client = await pool.connect();
@@ -1447,11 +1463,28 @@ async function setupDatabase() {
       END $$;
     `);
 
-    console.log('Database schema updated successfully');
+    logEvent('info', 'Database schema updated successfully');
     await client.release();
   } catch (err) {
-    console.error('Error updating database schema:', err);
+    logEvent('error', 'Error updating database schema', { error: err.message });
     process.exit(1);
+  }
+}
+
+// Update pool error handler
+pool.on('error', (err) => {
+  logEvent('error', 'Unexpected database error', { error: err.message });
+});
+
+// Add this helper function
+function generateSecureKey(length = 12) {
+  try {
+    return crypto.randomBytes(length).toString('hex');
+  } catch (error) {
+    console.error('Error generating secure key:', error);
+    // Fallback to a simpler method if crypto fails
+    return Math.random().toString(36).slice(2) + 
+           Math.random().toString(36).slice(2);
   }
 }
 
@@ -1678,8 +1711,10 @@ app.get('/api/whois/:domain', validateApiKey, async (req, res) => {
 
     const whoisData = await whois(domain);
     
-    // Log the full WHOIS data
-    console.log('Full WHOIS data from server:', JSON.stringify(whoisData, null, 2));
+    logEvent('debug', 'WHOIS lookup completed', { 
+      domain,
+      hasData: !!whoisData 
+    });
 
     if (!whoisData) {
       return res.status(404).json({ error: 'No WHOIS data found for domain' });
@@ -1708,7 +1743,10 @@ app.get('/api/whois/:domain', validateApiKey, async (req, res) => {
 
     res.json(relevantData);
   } catch (error) {
-    console.error('WHOIS lookup error:', error);
+    logEvent('error', 'WHOIS lookup failed', { 
+      error: error.message,
+      domain: req.params.domain 
+    });
     res.status(500).json({ error: 'Failed to perform WHOIS lookup', details: error.message });
   }
 });

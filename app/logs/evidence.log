@@ -1,0 +1,7 @@
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "EvidenceProcessor", "message": "Starting Evidence Processor"}
+{"timestamp": "2024-11-08 19:58:48", "level": "WARNING", "component": "EvidenceProcessor", "message": "No evidence processor prompt found in database yet"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "EvidenceProcessor", "message": "Evidence Processor initialized successfully"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "EvidenceProcessor", "message": "Starting main loop..."}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "EvidenceProcessor", "message": "Starting evidence processing loop"}
+{"timestamp": "2024-11-08 19:58:48", "level": "WARNING", "component": "EvidenceProcessor", "message": "No evidence processor prompt found in database yet"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "EvidenceProcessor", "message": "Still waiting for prompt to be configured..."}

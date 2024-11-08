@@ -1,0 +1,12 @@
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Starting Security Sketch Operator"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Output directory: sketch_files"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Database host: security-sketch-db"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Database name: security_sketch"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Validating API key..."}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Initialized SecuritySketchOperator"}
+{"timestamp": "2024-11-08 19:58:48", "level": "WARNING", "component": "SecuritySketchOperator", "message": "No sketch operator prompt found in database yet"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Security Sketch Operator initialized successfully"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Starting main loop..."}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "API key validated successfully"}
+{"timestamp": "2024-11-08 19:58:48", "level": "WARNING", "component": "SecuritySketchOperator", "message": "No sketch operator prompt found in database yet"}
+{"timestamp": "2024-11-08 19:58:48", "level": "INFO", "component": "SecuritySketchOperator", "message": "Still waiting for prompt to be configured..."}
