@@ -1,4 +1,6 @@
 import { useState } from 'react';
+import { api } from '../api/api';
+import { formatWhoisResult, parseWhoisData } from '../utils/whoisUtil';
 
 export const COMMANDS = {
   include: {
@@ -26,10 +28,57 @@ export const COMMANDS = {
         messageType: 'command'
       };
     }
+  },
+  whois: {
+    description: 'Perform WHOIS lookup on a domain',
+    handler: async (message) => {
+      const domain = message.replace('/whois', '').trim();
+      if (!domain) {
+        return {
+          content: 'Please provide a domain name (e.g., /whois google.com)',
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+      
+      try {
+        const whoisData = await api.performWhois(domain);
+        console.log('Raw WHOIS data received by client:', whoisData);
+        
+        const parsedData = parseWhoisData(whoisData);
+        console.log('Parsed WHOIS data:', parsedData);
+        
+        const formattedResult = formatWhoisResult(parsedData);
+        console.log('Formatted WHOIS result:', formattedResult);
+        
+        if (formattedResult === 'No WHOIS data available') {
+          return {
+            content: `No WHOIS data found for domain: ${domain}`,
+            llm_required: false,
+            messageType: 'command',
+            isError: true
+          };
+        }
+        
+        return {
+          content: `WHOIS lookup for ${domain}:\n\`\`\`\n\n${formattedResult}\n\n\`\`\``,
+          llm_required: false,
+          messageType: 'command'
+        };
+      } catch (error) {
+        return {
+          content: `Error performing WHOIS lookup: ${error.message}`,
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+    }
   }
 };
 
-export const processCommand = (message) => {
+export const processCommand = async (message) => {
   if (!message.startsWith('/')) return null;
   
   const command = Object.keys(COMMANDS).find(cmd => 
@@ -38,9 +87,5 @@ export const processCommand = (message) => {
 
   if (!command) return null;
   
-  const result = COMMANDS[command].handler(message);
-  if (result) {
-    result.messageType = 'command';
-  }
-  return result;
+  return await COMMANDS[command].handler(message);
 }; 

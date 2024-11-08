@@ -721,6 +721,17 @@ const apiInstance = {
     }
     return response.json();
   },
+
+  performWhois: async (domain) => {
+    const response = await fetchWithAuth(`${API_URL}/api/whois/${domain}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'WHOIS lookup failed');
+    }
+    
+    return response.json();
+  },
 };
 
 export { apiInstance as api };

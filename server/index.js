@@ -9,6 +9,7 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs').promises;
 const { GoogleGenerativeAI } = require('@google/generative-ai');
+const whois = require('whois-json');
 
 const app = express();
 const server = http.createServer(app);
@@ -1661,6 +1662,54 @@ app.get('/api/access/status', validateApiKey, async (req, res) => {
   } catch (error) {
     console.error('Error checking access status:', error);
     res.status(500).json({ error: 'Failed to check access status' });
+  }
+});
+
+// Add this new endpoint with your other API routes
+app.get('/api/whois/:domain', validateApiKey, async (req, res) => {
+  try {
+    const { domain } = req.params;
+    
+    // Basic domain validation
+    const domainRegex = /^[a-zA-Z0-9][a-zA-Z0-9-]{1,61}[a-zA-Z0-9]\.[a-zA-Z]{2,}$/;
+    if (!domainRegex.test(domain)) {
+      return res.status(400).json({ error: 'Invalid domain format' });
+    }
+
+    const whoisData = await whois(domain);
+    
+    // Log the full WHOIS data
+    console.log('Full WHOIS data from server:', JSON.stringify(whoisData, null, 2));
+
+    if (!whoisData) {
+      return res.status(404).json({ error: 'No WHOIS data found for domain' });
+    }
+
+    // Extract relevant security fields
+    const relevantData = {
+      domainName: whoisData.domainName || domain,
+      registrar: whoisData.registrar,
+      nameServers: whoisData.nameServers || whoisData.nameServer || [], // Handle different property names
+      creationDate: whoisData.creationDate,
+      updatedDate: whoisData.updatedDate,
+      registryExpiryDate: whoisData.registryExpiryDate,
+      dnssec: whoisData.dnssec,
+      registrantOrganization: whoisData.registrantOrganization,
+      registrantCountry: whoisData.registrantCountry,
+      adminEmail: whoisData.adminEmail,
+      techEmail: whoisData.techEmail,
+      registryDomainId: whoisData.registryDomainId
+    };
+
+    // Ensure nameServers is always an array
+    if (typeof relevantData.nameServers === 'string') {
+      relevantData.nameServers = [relevantData.nameServers];
+    }
+
+    res.json(relevantData);
+  } catch (error) {
+    console.error('WHOIS lookup error:', error);
+    res.status(500).json({ error: 'Failed to perform WHOIS lookup', details: error.message });
   }
 });
 

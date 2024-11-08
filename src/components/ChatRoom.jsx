@@ -61,7 +61,8 @@ function ChatRoom() {
   const [coOwners, setCoOwners] = useState([]);
 
   const formatMessageContent = (content, username) => {
-    // Split content by code blocks first
+    // Add IP address regex before the existing URL regex
+    const ipRegex = /\b(?:\d{1,3}\.){3}\d{1,3}\b/g;
     const parts = content.split(/(```[\s\S]*?```|`[^`]+`)/g);
     
     return parts.map((part, index) => {
@@ -72,13 +73,15 @@ function ChatRoom() {
         const codeContent = language ? code.slice(language.length).trim() : code;
         
         return (
-          <div key={index} className="relative my-3">
+          <div key={index} className="relative my-3 max-w-full">
             <div className="absolute -top-2.5 left-3 px-2 py-0.5 rounded-md bg-[#282a36] text-[#bd93f9] text-xs font-mono border border-[#bd93f9]/20 flex items-center gap-1.5">
               <FaCode className="w-3 h-3" />
               {language || 'code'}
             </div>
-            <pre className="bg-[#282a36] border border-[#bd93f9]/20 p-3 pt-4 rounded-lg font-mono text-sm overflow-x-auto text-[#f8f8f2]">
-              <code>{codeContent}</code>
+            <pre className="bg-[#282a36] border border-[#bd93f9]/20 p-3 pt-4 rounded-lg font-mono text-sm overflow-x-auto text-[#f8f8f2] whitespace-pre-wrap break-words max-w-full">
+              <code className="break-words whitespace-pre-wrap">
+                {codeContent}
+              </code>
             </pre>
           </div>
         );
@@ -94,73 +97,133 @@ function ChatRoom() {
         );
       }
       
-      // Process URLs and mentions for non-code parts
-      const urlRegex = /(https?:\/\/[^\s]+)/g;
-      const mentionRegex = /@(\w+)@(\w+)/g;
-      const subParts = part.split(mentionRegex);
+      // For regular text, process IPs, URLs, and mentions
+      let result = [];
+      let lastIndex = 0;
       
-      return subParts.map((subPart, subIndex) => {
-        if (subIndex % 3 === 0) {
-          // Process URLs in regular text
-          const urlParts = subPart.split(urlRegex);
-          return urlParts.map((text, i) => {
-            if (text.match(urlRegex)) {
+      // First find and process IP addresses
+      const ipMatches = [...part.matchAll(ipRegex)];
+      ipMatches.forEach((match, i) => {
+        // Add text before the IP
+        if (match.index > lastIndex) {
+          result.push(part.slice(lastIndex, match.index));
+        }
+        
+        // Add the IP as a link
+        result.push(
+          <span key={`ip-${index}-${i}`}>
+            <a 
+              href={`https://spur.us/context/${match[0]}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline hover:opacity-80 transition-opacity"
+            >
+              {match[0]}
+            </a>
+          </span>
+        );
+        
+        lastIndex = match.index + match[0].length;
+      });
+      
+      // Add remaining text
+      if (lastIndex < part.length) {
+        result.push(part.slice(lastIndex));
+      }
+      
+      // Process URLs and mentions in the remaining text parts
+      return result.map((item, i) => {
+        if (typeof item === 'string') {
+          // Process URLs and mentions as before
+          const urlRegex = /(https?:\/\/[^\s]+)/g;
+          const mentionRegex = /@(\w+)@(\w+)/g;
+          const subParts = item.split(mentionRegex);
+          
+          return subParts.map((subPart, subIndex) => {
+            if (subIndex % 3 === 0) {
+              // First process IP addresses, then URLs in regular text
+              const ipParts = subPart.split(ipRegex);
+              return ipParts.map((text, i) => {
+                if (text.match(ipRegex)) {
+                  return (
+                    <span key={`${index}-${subIndex}-${i}`} className="inline-flex items-center gap-1">
+                      <a 
+                        href={`https://spur.us/context/${text}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="underline hover:opacity-80 transition-opacity"
+                      >
+                        {text}
+                      </a>
+                      <FaExternalLinkAlt className="w-3 h-3 opacity-50" />
+                    </span>
+                  );
+                }
+                
+                // Process remaining URLs as before
+                const urlParts = text.split(urlRegex);
+                return urlParts.map((urlText, j) => {
+                  if (urlText.match(urlRegex)) {
+                    return (
+                      <span key={`${index}-${subIndex}-${i}-${j}`} className="inline-flex items-center gap-1">
+                        <a 
+                          href={urlText}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="underline hover:opacity-80 transition-opacity"
+                        >
+                          {urlText}
+                        </a>
+                        <FaExternalLinkAlt className="w-3 h-3 opacity-50" />
+                      </span>
+                    );
+                  }
+                  return urlText;
+                });
+              });
+            }
+            
+            // Handle mentions as before
+            if (subIndex % 3 === 1) {
+              const mentionedUsername = subPart;
+              const teamName = subParts[subIndex + 1];
+              const isBot = mentionedUsername.toLowerCase() === 'sketchy';
+              const isActiveUser = activeUsers.some(user => user.username.toLowerCase() === mentionedUsername.toLowerCase());
+              const isMentionedUser = mentionedUsername.toLowerCase() === username.toLowerCase();
+              
+              let className = 'inline-block px-2 py-0.5 rounded-md font-medium ';
+              if (theme === 'corporate') {
+                if (isBot) {
+                  className += 'bg-primary/25 text-primary-focus';
+                } else if (isActiveUser) {
+                  className += isMentionedUser
+                    ? 'bg-primary/30 text-primary-focus'
+                    : 'bg-neutral/25 text-neutral';
+                }
+              } else {
+                if (isBot) {
+                  className += 'bg-purple-500/20 text-purple-300';
+                } else if (isActiveUser) {
+                  className += isMentionedUser
+                    ? 'bg-teal-500/20 text-teal-300'
+                    : 'bg-slate-300/10 text-slate-300';
+                }
+              }
+              
               return (
-                <span key={`${index}-${subIndex}-${i}`} className="inline-flex items-center gap-1">
-                  <a 
-                    href={text}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="underline hover:opacity-80 transition-opacity"
-                  >
-                    {text}
-                  </a>
-                  <FaExternalLinkAlt className="w-3 h-3 opacity-50" />
+                <span
+                  key={`${index}-${subIndex}`}
+                  className={className}
+                >
+                  @{mentionedUsername}@{teamName}
                 </span>
               );
             }
-            return text;
-          });
+            return null;
+          }).filter(Boolean);
         }
-        
-        // Handle mentions as before
-        if (subIndex % 3 === 1) {
-          const mentionedUsername = subPart;
-          const teamName = subParts[subIndex + 1];
-          const isBot = mentionedUsername.toLowerCase() === 'sketchy';
-          const isActiveUser = activeUsers.some(user => user.username.toLowerCase() === mentionedUsername.toLowerCase());
-          const isMentionedUser = mentionedUsername.toLowerCase() === username.toLowerCase();
-          
-          let className = 'inline-block px-2 py-0.5 rounded-md font-medium ';
-          if (theme === 'corporate') {
-            if (isBot) {
-              className += 'bg-primary/25 text-primary-focus';
-            } else if (isActiveUser) {
-              className += isMentionedUser
-                ? 'bg-primary/30 text-primary-focus'
-                : 'bg-neutral/25 text-neutral';
-            }
-          } else {
-            if (isBot) {
-              className += 'bg-purple-500/20 text-purple-300';
-            } else if (isActiveUser) {
-              className += isMentionedUser
-                ? 'bg-teal-500/20 text-teal-300'
-                : 'bg-slate-300/10 text-slate-300';
-            }
-          }
-          
-          return (
-            <span
-              key={`${index}-${subIndex}`}
-              className={className}
-            >
-              @{mentionedUsername}@{teamName}
-            </span>
-          );
-        }
-        return null;
-      }).filter(Boolean);
+        return item;
+      });
     });
   };
 
@@ -526,16 +589,17 @@ function ChatRoom() {
     
     try {
       // Process command first
-      const commandResult = processCommand(trimmedMessage);
+      const commandResult = await processCommand(trimmedMessage);
       
       if (commandResult) {
-        console.log('Sending command message:', commandResult); // Debug log
+        console.log('Sending command message:', commandResult);
         await api.sendMessage({
           roomId,
           username,
           content: commandResult.content,
           llm_required: commandResult.llm_required,
-          messageType: commandResult.messageType
+          messageType: commandResult.messageType,
+          isError: commandResult.isError
         });
       } else if (trimmedMessage.toLowerCase().includes('@sketchy')) {
         // Add typing indicator with unique ID
@@ -1502,7 +1566,13 @@ function ChatRoom() {
                                   {formatMessageContent(msg.content, username)}
                                 </>
                               )
-                              : `* ${msg.username} ${msg.content}`
+                              : (
+                                <>
+                                  <span className="text-xs font-medium mr-2">*</span>
+                                  <span>{msg.username} </span>
+                                  {formatMessageContent(msg.content, username)}
+                                </>
+                              )
                             : msg.type === 'file-upload' 
                               ? (
                                 <>
