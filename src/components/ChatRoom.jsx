@@ -1560,11 +1560,11 @@ function ChatRoom() {
                               : `inline-block px-4 py-2 ${
                                 msg.username === username 
                                   ? theme === 'black'
-                                    ? 'bg-indigo-600 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]' 
-                                    : 'bg-blue-600 text-white shadow-md'
+                                    ? 'bg-indigo-600 text-white'
+                                    : 'bg-blue-600 text-white'
                                   : theme === 'black'
-                                    ? 'bg-zinc-700 text-white shadow-[0_4px_6px_-1px_rgba(0,0,0,0.3)]'
-                                    : 'bg-gray-200 text-gray-800 shadow-md'
+                                    ? 'bg-zinc-700 text-white'
+                                    : 'bg-gray-200 text-gray-800'
                               }`
                         }`}>
                           {msg.messageType === 'command' || msg.message_type === 'command' 
