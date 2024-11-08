@@ -88,7 +88,7 @@ function ChatRoom() {
       if (part.startsWith('`') && part.endsWith('`')) {
         const code = part.slice(1, -1);
         return (
-          <code key={index} className="bg-[#282a36] border border-[#bd93f9]/10 px-1.5 py-0.5 rounded font-mono text-sm text-[#f8f8f2]">
+          <code key={index} className="bg-[#282a36] border border-[#bd93f9]/10 px-1.5 py-0.5 rounded font-mono text-sm text-[#f8f8f2] whitespace-pre-wrap break-words">
             {code}
           </code>
         );
