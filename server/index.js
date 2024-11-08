@@ -1713,3 +1713,46 @@ app.get('/api/whois/:domain', validateApiKey, async (req, res) => {
   }
 });
 
+// Add near other API endpoints
+app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
+  try {
+    const { indicator } = req.params;
+    const VT_API_KEY = process.env.VT_API_KEY;
+    
+    if (!VT_API_KEY) {
+      return res.status(500).json({ error: 'VirusTotal API key not configured' });
+    }
+
+    // First get the main domain data
+    const mainResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}`, {
+      headers: {
+        'x-apikey': VT_API_KEY
+      }
+    });
+
+    if (!mainResponse.ok) {
+      throw new Error(`VirusTotal API error: ${mainResponse.statusText}`);
+    }
+
+    const mainData = await mainResponse.json();
+    
+    // Then get the resolutions data
+    const resolutionsResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}/resolutions`, {
+      headers: {
+        'x-apikey': VT_API_KEY
+      }
+    });
+
+    if (resolutionsResponse.ok) {
+      const resolutionsData = await resolutionsResponse.json();
+      // Merge the resolutions data into the main response
+      mainData.data.attributes.resolutions = resolutionsData.data;
+    }
+
+    res.json(mainData.data.attributes);
+  } catch (error) {
+    console.error('VirusTotal lookup error:', error);
+    res.status(500).json({ error: 'Failed to perform VirusTotal lookup', details: error.message });
+  }
+});
+

@@ -732,6 +732,17 @@ const apiInstance = {
     
     return response.json();
   },
+
+  performVTLookup: async (indicator) => {
+    const response = await fetchWithAuth(`${API_URL}/api/vt/${encodeURIComponent(indicator)}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'VirusTotal lookup failed');
+    }
+    
+    return response.json();
+  },
 };
 
 export { apiInstance as api };

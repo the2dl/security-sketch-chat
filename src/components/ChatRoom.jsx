@@ -17,6 +17,8 @@ import { processCommand } from './Commands';
 import { FaTerminal, FaSlash } from 'react-icons/fa';
 import { COMMANDS } from './Commands';
 import { Helmet } from 'react-helmet-async';
+import { SiVirustotal } from "react-icons/si";
+import { TbWorldWww } from "react-icons/tb";
 
 function ChatRoom() {
   const { theme } = useTheme();
@@ -1528,6 +1530,10 @@ function ChatRoom() {
                           <div className="absolute -top-2 -left-4 bg-base-200 rounded-full p-1 shadow-md z-10">
                             {msg.llm_required ? (
                               <FaRobot className="w-3 h-3 text-purple-400" />
+                            ) : msg.content.includes('VirusTotal results') ? (
+                              <SiVirustotal className="w-3 h-3 text-indigo-400" />
+                            ) : msg.content.includes('WHOIS lookup') ? (
+                              <TbWorldWww className="w-3 h-3 text-indigo-400" />
                             ) : msg.content.includes('waves a security policy') ? (
                               <FaFileContract className="w-3 h-3 text-indigo-400" />
                             ) : (
@@ -1627,6 +1633,10 @@ function ChatRoom() {
                           <div className="mt-0.5">
                             {cmd === 'slap' ? (
                               <FaFileContract className="w-3.5 h-3.5 text-indigo-400" />
+                            ) : cmd === 'vt' ? (
+                              <SiVirustotal className="w-3.5 h-3.5 text-indigo-400" />
+                            ) : cmd === 'whois' ? (
+                              <TbWorldWww className="w-3.5 h-3.5 text-indigo-400" />
                             ) : (
                               <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
                             )}

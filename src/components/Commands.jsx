@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { api } from '../api/api';
 import { formatWhoisResult, parseWhoisData } from '../utils/whoisUtil';
+import { formatVTResult } from '../utils/vtUtil';
 
 export const COMMANDS = {
   include: {
@@ -69,6 +70,40 @@ export const COMMANDS = {
       } catch (error) {
         return {
           content: `Error performing WHOIS lookup: ${error.message}`,
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+    }
+  },
+  vt: {
+    description: 'Lookup indicator in VirusTotal',
+    handler: async (message) => {
+      const indicator = message.replace('/vt', '').trim();
+      if (!indicator) {
+        return {
+          content: 'Please provide an indicator (hash, domain, IP, or URL)',
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+      
+      try {
+        const vtData = await api.performVTLookup(indicator);
+        console.log('Raw VT data received by client:', vtData);
+        
+        const formattedResult = formatVTResult(vtData);
+        
+        return {
+          content: `VirusTotal results for ${indicator}:\n\`\`\`\n${formattedResult}\n\`\`\``,
+          llm_required: false,
+          messageType: 'command'
+        };
+      } catch (error) {
+        return {
+          content: `Error performing VirusTotal lookup: ${error.message}`,
           llm_required: false,
           messageType: 'command',
           isError: true
