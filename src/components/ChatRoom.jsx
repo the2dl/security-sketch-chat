@@ -1423,7 +1423,9 @@ function ChatRoom() {
             <hr className="border-base-300 my-2" />
             
             <div className="flex-1 overflow-y-auto mt-4 space-y-4 pr-2 min-h-0 relative">
-              {messages.map((msg, index) => (
+              {messages
+                .sort((a, b) => new Date(a.timestamp) - new Date(b.timestamp))
+                .map((msg, index) => (
                 <div key={msg.id || `temp-${index}`}>
                   {msg.isBot ? (
                     <BotMessage 

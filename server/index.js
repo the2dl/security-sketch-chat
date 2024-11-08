@@ -416,7 +416,7 @@ io.on('connection', (socket) => {
         FROM messages m
         LEFT JOIN users u ON m.user_id = u.id
         WHERE m.room_id = $1
-        ORDER BY m.created_at DESC
+        ORDER BY m.created_at ASC
         LIMIT 100
       `, [roomId]);
 
