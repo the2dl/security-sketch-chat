@@ -713,15 +713,6 @@ const apiInstance = {
     return response.json();
   },
 
-  // Add this to your apiInstance object
-  checkAdminKeyStatus: async () => {
-    const response = await fetchWithAuth(`${API_URL}/api/admin/key-status`);
-    if (!response.ok) {
-      throw new Error('Failed to check admin key status');
-    }
-    return response.json();
-  },
-
   performWhois: async (domain) => {
     const response = await fetchWithAuth(`${API_URL}/api/whois/${domain}`);
     

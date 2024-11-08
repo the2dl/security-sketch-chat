@@ -26,7 +26,6 @@ function Home() {
   const [selectedTeamDetails, setSelectedTeamDetails] = useState(null);
   const [showJoinModal, setShowJoinModal] = useState(false);
   const [joiningRoomId, setJoiningRoomId] = useState(null);
-  const [showAdminKeyModal, setShowAdminKeyModal] = useState(false);
   const [adminKey, setAdminKey] = useState('');
   const [copySuccess, setCopySuccess] = useState(false);
   const [isInitialized, setIsInitialized] = useState(null);
@@ -53,16 +52,13 @@ function Home() {
         if (sessionAccess === 'true') {
           setHasAccess(true);
           setIsChecking(false);
-          checkAdminKey();
         } else {
           if (!initialized) {
             setShowSetupModal(true);
             setShowAccessModal(false);
-            setShowAdminKeyModal(false);
           } else {
             setShowAccessModal(true);
             setShowSetupModal(false);
-            setShowAdminKeyModal(false);
           }
           setIsChecking(false);
         }
@@ -76,8 +72,8 @@ function Home() {
   }, []);
 
   useEffect(() => {
-    // Only set up socket if we have access or we're not initialized yet
-    if (!isChecking && (hasAccess || !isInitialized)) {
+    // Only set up socket if we're not initialized or if we need to show setup
+    if (!isChecking && (!isInitialized || showSetupModal)) {
       console.log('Setting up socket connection for admin key...');
       
       const socket = io(process.env.REACT_APP_API_URL, {
@@ -97,9 +93,8 @@ function Home() {
       socket.on('initial_admin_key', ({ adminKey }) => {
         console.log('Received admin key:', adminKey);
         setAdminKey(adminKey);
-        // Only show admin key modal if we have access
-        if (hasAccess) {
-          setShowAdminKeyModal(true);
+        if (!isInitialized) {
+          setShowSetupModal(true);
         }
       });
 
@@ -109,12 +104,18 @@ function Home() {
         socket.disconnect();
       };
     }
-  }, [isChecking, hasAccess, isInitialized]);
+  }, [isChecking, isInitialized, showSetupModal]);
 
+  // Add some debug logging
   useEffect(() => {
-    console.log('Admin key modal visibility:', showAdminKeyModal);
-    console.log('Current admin key:', adminKey);
-  }, [showAdminKeyModal, adminKey]);
+    console.log('Setup Modal State:', {
+      isChecking,
+      isInitialized,
+      showSetupModal,
+      hasAccess,
+      adminKey
+    });
+  }, [isChecking, isInitialized, showSetupModal, hasAccess, adminKey]);
 
   const fetchTeams = async () => {
     try {
@@ -301,13 +302,11 @@ function Home() {
   const handleModalClose = async () => {
     try {
       await api.acknowledgeAdminKey();
-      setShowAdminKeyModal(false);
       setShowSetupModal(false);
       setShowAccessModal(false);
       setIsChecking(false);
     } catch (error) {
       console.error('Failed to acknowledge admin key:', error);
-      setShowAdminKeyModal(false);
     }
   };
 
@@ -321,7 +320,6 @@ function Home() {
       
       if (adminKey) {
         await api.acknowledgeAdminKey();
-        setShowAdminKeyModal(false);
         setShowSetupModal(false);
         setShowAccessModal(false);
         setIsChecking(false);
@@ -341,25 +339,11 @@ function Home() {
         setShowAccessModal(false);
         sessionStorage.setItem('hasAccess', 'true');
         setIsChecking(false);
-        // Check for admin key if needed
-        checkAdminKey();
       } else {
         setAccessError('Invalid access word');
       }
     } catch (error) {
       setAccessError(error.message);
-    }
-  };
-
-  // Add this function to check admin key after access is verified
-  const checkAdminKey = async () => {
-    try {
-      const response = await api.checkAdminKeyStatus();
-      if (!response.shown) {
-        setShowAdminKeyModal(true);
-      }
-    } catch (error) {
-      console.error('Failed to check admin key status:', error);
     }
   };
 
@@ -378,6 +362,83 @@ function Home() {
         </div>
       ) : (
         <>
+          {showSetupModal && !isInitialized && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
+                <h3 className="font-bold text-xl mb-4">Security Sketch Setup</h3>
+                
+                <div className="alert alert-info mb-6">
+                  <div>
+                    <h4 className="font-semibold">Initial Setup Process:</h4>
+                    <ol className="list-decimal list-inside mt-2 space-y-1">
+                      <li>Set your system access word below</li>
+                      <li>Save your admin key securely</li>
+                      <li>After setup, you'll be taken to the admin page to:</li>
+                      <ul className="list-disc list-inside ml-6 mt-1">
+                        <li>Create investigation teams</li>
+                        <li>Configure AI assistant prompts</li>
+                      </ul>
+                    </ol>
+                  </div>
+                </div>
+
+                {/* Step 1: Access Word */}
+                <div className="mb-8">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="font-semibold text-lg">Step 1: Set Access Word</h4>
+                  </div>
+                  <p className="text-base-content/70 mb-4">
+                    Choose a memorable word that all users will need to access the system.
+                  </p>
+                  {accessError && (
+                    <div className="alert alert-error mb-4">
+                      <span>{accessError}</span>
+                    </div>
+                  )}
+                  <input
+                    type="password"
+                    placeholder="Set access word"
+                    className="input input-bordered w-full"
+                    value={accessWord}
+                    onChange={(e) => setAccessWord(e.target.value)}
+                    autoFocus
+                  />
+                </div>
+
+                {/* Step 2: Admin Key */}
+                <div className="mb-6">
+                  <div className="flex items-center gap-2 mb-2">
+                    <h4 className="font-semibold text-lg">Step 2: Save Admin Key</h4>
+                  </div>
+                  <p className="text-base-content/70 mb-4">
+                    This is your administrator key for managing the system. Store it securely - it will only be shown once.
+                  </p>
+                  <div className="bg-base-300 p-3 rounded-lg flex items-center gap-2">
+                    <code className="text-primary break-all font-mono flex-1">
+                      {adminKey}
+                    </code>
+                    <button 
+                      className={`btn btn-sm ${copySuccess ? 'btn-success' : 'btn-ghost'}`}
+                      onClick={handleCopy}
+                    >
+                      {copySuccess ? 'Copied!' : 'Copy'}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="modal-action">
+                  <button 
+                    className="btn btn-primary"
+                    onClick={handleInitializeAccess}
+                    disabled={!accessWord.trim()}
+                  >
+                    Complete Setup & Continue to Admin
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {hasAccess && (
             <div className="flex flex-col items-center justify-center min-h-[calc(100vh-8rem)] p-4 max-w-2xl mx-auto w-full">
               <div className="text-center mb-8">
@@ -683,146 +744,35 @@ function Home() {
                 </div>
               )}
 
-              {showAdminKeyModal && (
+              {showAccessModal && isInitialized && !hasAccess && (
                 <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                  <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-sm mx-4">
-                    <h3 className="font-bold text-lg mb-4">Initial Admin Key Generated</h3>
-                    <div className="flex flex-col gap-2 mb-6">
-                      <p className="text-base-content">Please save this admin key in a secure location. It will only be shown once:</p>
-                      <div className="bg-base-300 p-3 rounded-lg flex items-center gap-2">
-                        <code className="text-primary break-all font-mono flex-1">
-                          {adminKey}
-                        </code>
-                        <button 
-                          className={`btn btn-sm ${copySuccess ? 'btn-success' : 'btn-ghost'}`}
-                          onClick={handleCopy}
-                        >
-                          {copySuccess ? (
-                            <span>Copied!</span>
-                          ) : (
-                            <span>Copy</span>
-                          )}
-                        </button>
+                  <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
+                    <h3 className="font-bold text-xl mb-6">Enter Access Word</h3>
+                    {accessError && (
+                      <div className="alert alert-error mb-4">
+                        <span>{accessError}</span>
                       </div>
-                    </div>
+                    )}
+                    <input
+                      type="password"
+                      placeholder="Enter access word"
+                      className="input input-bordered w-full mb-4"
+                      value={accessWord}
+                      onChange={(e) => setAccessWord(e.target.value)}
+                      autoFocus
+                    />
                     <div className="modal-action">
                       <button 
                         className="btn btn-primary"
-                        onClick={handleModalClose}
+                        onClick={handleVerifyAccess}
+                        disabled={!accessWord.trim()}
                       >
-                        I've Saved the Key
+                        Verify
                       </button>
                     </div>
                   </div>
                 </div>
               )}
-            </div>
-          )}
-
-          {showSetupModal && !isInitialized && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
-                <h3 className="font-bold text-xl mb-4">Security Sketch Setup</h3>
-                
-                <div className="alert alert-info mb-6">
-                  <div>
-                    <h4 className="font-semibold">Initial Setup Process:</h4>
-                    <ol className="list-decimal list-inside mt-2 space-y-1">
-                      <li>Set your system access word below</li>
-                      <li>Save your admin key securely</li>
-                      <li>After setup, you'll be taken to the admin page to:</li>
-                      <ul className="list-disc list-inside ml-6 mt-1">
-                        <li>Create investigation teams</li>
-                        <li>Configure AI assistant prompts</li>
-                      </ul>
-                    </ol>
-                  </div>
-                </div>
-
-                {/* Step 1: Access Word */}
-                <div className="mb-8">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h4 className="font-semibold text-lg">Step 1: Set Access Word</h4>
-                  </div>
-                  <p className="text-base-content/70 mb-4">
-                    Choose a memorable word that all users will need to access the system.
-                  </p>
-                  {accessError && (
-                    <div className="alert alert-error mb-4">
-                      <span>{accessError}</span>
-                    </div>
-                  )}
-                  <input
-                    type="password"
-                    placeholder="Set access word"
-                    className="input input-bordered w-full"
-                    value={accessWord}
-                    onChange={(e) => setAccessWord(e.target.value)}
-                    autoFocus
-                  />
-                </div>
-
-                {/* Step 2: Admin Key */}
-                <div className="mb-6">
-                  <div className="flex items-center gap-2 mb-2">
-                    <h4 className="font-semibold text-lg">Step 2: Save Admin Key</h4>
-                  </div>
-                  <p className="text-base-content/70 mb-4">
-                    This is your administrator key for managing the system. Store it securely - it will only be shown once.
-                  </p>
-                  <div className="bg-base-300 p-3 rounded-lg flex items-center gap-2">
-                    <code className="text-primary break-all font-mono flex-1">
-                      {adminKey}
-                    </code>
-                    <button 
-                      className={`btn btn-sm ${copySuccess ? 'btn-success' : 'btn-ghost'}`}
-                      onClick={handleCopy}
-                    >
-                      {copySuccess ? 'Copied!' : 'Copy'}
-                    </button>
-                  </div>
-                </div>
-
-                <div className="modal-action">
-                  <button 
-                    className="btn btn-primary"
-                    onClick={handleInitializeAccess}
-                    disabled={!accessWord.trim()}
-                  >
-                    Complete Setup & Continue to Admin
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-
-          {showAccessModal && isInitialized && !hasAccess && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
-                <h3 className="font-bold text-xl mb-6">Enter Access Word</h3>
-                {accessError && (
-                  <div className="alert alert-error mb-4">
-                    <span>{accessError}</span>
-                  </div>
-                )}
-                <input
-                  type="password"
-                  placeholder="Enter access word"
-                  className="input input-bordered w-full mb-4"
-                  value={accessWord}
-                  onChange={(e) => setAccessWord(e.target.value)}
-                  autoFocus
-                />
-                <div className="modal-action">
-                  <button 
-                    className="btn btn-primary"
-                    onClick={handleVerifyAccess}
-                    disabled={!accessWord.trim()}
-                  >
-                    Verify
-                  </button>
-                </div>
-              </div>
             </div>
           )}
         </>

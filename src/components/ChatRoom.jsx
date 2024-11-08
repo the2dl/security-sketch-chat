@@ -688,7 +688,8 @@ function ChatRoom() {
     // Show command suggestions when / is typed at the start
     if (value === '/') {
       setShowCommandSuggestions(true);
-    } else if (!value.startsWith('/')) {
+    } else if (!value.startsWith('/') || value.includes(' ')) {
+      // Hide suggestions if text doesn't start with / or if there's a space
       setShowCommandSuggestions(false);
     }
     
