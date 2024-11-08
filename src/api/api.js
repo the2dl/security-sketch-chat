@@ -743,6 +743,17 @@ const apiInstance = {
     
     return response.json();
   },
+
+  performIPLookup: async (ip) => {
+    const response = await fetchWithAuth(`${API_URL}/api/ipinfo/${encodeURIComponent(ip)}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'IP lookup failed');
+    }
+    
+    return response.json();
+  },
 };
 
 export { apiInstance as api };

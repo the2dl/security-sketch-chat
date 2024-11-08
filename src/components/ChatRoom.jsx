@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode, FaFileContract } from 'react-icons/fa';
+import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode, FaFileContract, FaNetworkWired } from 'react-icons/fa';
 import { HiOutlineLogout, HiUserAdd } from 'react-icons/hi';
 import ConfirmCloseModal from './modals/ConfirmCloseModal';
 import SecretKeyModal from './modals/SecretKeyModal';
@@ -1530,6 +1530,8 @@ function ChatRoom() {
                           <div className="absolute -top-2 -left-4 bg-base-200 rounded-full p-1 shadow-md z-10">
                             {msg.llm_required ? (
                               <FaRobot className="w-3 h-3 text-purple-400" />
+                            ) : msg.content.includes('IP information for') ? (
+                              <FaNetworkWired className="w-3 h-3 text-blue-400" />
                             ) : msg.content.includes('VirusTotal results') ? (
                               <SiVirustotal className="w-3 h-3 text-indigo-400" />
                             ) : msg.content.includes('WHOIS lookup') ? (

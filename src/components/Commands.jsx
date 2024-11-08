@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { api } from '../api/api';
 import { formatWhoisResult, parseWhoisData } from '../utils/whoisUtil';
 import { formatVTResult } from '../utils/vtUtil';
+import { FaNetworkWired } from 'react-icons/fa';
 
 export const COMMANDS = {
   include: {
@@ -104,6 +105,47 @@ export const COMMANDS = {
       } catch (error) {
         return {
           content: `Error performing VirusTotal lookup: ${error.message}`,
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+    }
+  },
+  ipinfo: {
+    description: 'Lookup IP address information',
+    handler: async (message) => {
+      const ip = message.replace('/ipinfo', '').trim();
+      if (!ip) {
+        return {
+          content: 'Please provide an IP address (e.g., /ipinfo 1.1.1.1)',
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+      
+      try {
+        const ipData = await api.performIPLookup(ip);
+        console.log('IP data received by client:', ipData);
+        
+        const formattedResult = [
+          `IP: ${ipData.ip}`,
+          `Hostname: ${ipData.hostname || 'N/A'}`,
+          `Organization: ${ipData.org || 'N/A'}`,
+          `Location: ${ipData.city}, ${ipData.region}, ${ipData.country}`,
+          `Coordinates: ${ipData.loc}`,
+          `Timezone: ${ipData.timezone}`
+        ].join('\n');
+        
+        return {
+          content: `IP information for ${ip}:\n\`\`\`\n${formattedResult}\n\`\`\``,
+          llm_required: false,
+          messageType: 'command'
+        };
+      } catch (error) {
+        return {
+          content: `Error performing IP lookup: ${error.message}`,
           llm_required: false,
           messageType: 'command',
           isError: true

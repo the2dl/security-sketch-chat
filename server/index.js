@@ -1756,3 +1756,33 @@ app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
   }
 });
 
+// Add near other API endpoints
+app.get('/api/ipinfo/:ip', validateApiKey, async (req, res) => {
+  try {
+    const { ip } = req.params;
+    const IPINFO_TOKEN = process.env.IPINFO_TOKEN;
+    
+    // Basic IP validation
+    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+    if (!ipRegex.test(ip)) {
+      return res.status(400).json({ error: 'Invalid IP address format' });
+    }
+
+    const response = await fetch(`https://ipinfo.io/${ip}/json`, {
+      headers: {
+        'Authorization': `Bearer ${IPINFO_TOKEN}`
+      }
+    });
+    
+    if (!response.ok) {
+      throw new Error(`IPInfo API error: ${response.statusText}`);
+    }
+
+    const data = await response.json();
+    res.json(data);
+  } catch (error) {
+    console.error('IP lookup error:', error);
+    res.status(500).json({ error: 'Failed to perform IP lookup', details: error.message });
+  }
+});
+
