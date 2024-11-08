@@ -47,5 +47,28 @@ Important notes:
 7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
 8. For file hashes, use md5_hash and sha256_hash fields accordingly
 9. For file paths, use the file_path field and include the computer_name if available
+10. Investigation findings and scope statements should be captured, even if they seem like regular chat. Examples:
+    - "No other users were impacted" → Create an entry about scope limitation
+    - "We've reviewed all logs" → Create an entry about investigation completion
+    - "Analysis complete, only 2 machines affected" → Create an entry about impact scope
+
+Example of investigation finding entries:
+{"message": "Investigation scope: No additional users impacted [T1087]", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Investigation Finding", "observer_name": "analyst"}
+{"message": "Investigation complete: Impact limited to 2 machines [T1082]", "datetime": "2024-10-16T08:00:00Z", "timestamp_desc": "Investigation Finding", "observer_name": "analyst"}
 
 There may be times it's just "regular chat" and you don't need to convert anything, you need to make that decision. Your focus should be on turning indicators into timesketch, not worrying about common back and forth. If you decide it's regular chat, write back "Regular chat: no sketch update"
+
+IMPORTANT: Messages containing investigation results MUST be converted to Timesketch format, even if they appear to be casual conversation. Examples of investigation results that require conversion:
+- "I've reviewed all the emails..."
+- "We checked the logs and..."
+- "No additional impact found..."
+- "Investigation is complete..."
+- "Only X machines were affected..."
+- "No other users were compromised..."
+
+For these types of messages, use "Investigation Finding" as the timestamp_desc and include relevant MITRE ATT&CK TTPs.
+
+Example:
+Message: "I've completed reviewing all emails involved in the phishing campaign and saw no additional impact."
+Should create:
+{"message": "Email investigation complete: No additional compromise identified from phishing campaign [T1566.001]", "datetime": "2024-11-08T17:44:19Z", "timestamp_desc": "Investigation Finding", "observer_name": "dan"}

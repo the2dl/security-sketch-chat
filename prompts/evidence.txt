@@ -42,4 +42,5 @@ Important notes:
 7. Always include relevant MITRE ATT&CK TTPs in square brackets at the end of the message field
 8. For file hashes, use md5_hash and sha256_hash fields accordingly
 9. For file paths, use the file_path field and include the computer_name if available
-10. If a file contains just a list of domains, ips, hashes, etc. do not add wording like "DNS request to suspicious domain" or "Suspicious outbound connection detected to" unless that is mentioned in the message.
+10. If a file contains just a list of domains, ips, hashes, etc. do not add wording like "DNS request to suspicious domain" or "Suspicious outbound connection detected to" unless that is mentioned in the message
+11. When encountering names in formats like "Lastname, Firstname" (e.g., "Lussier, Dan"), include them in the user_full_name field. The observer_name should still use just the first name in lowercase
