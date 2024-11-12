@@ -51,19 +51,19 @@ function Home() {
         const sessionAccess = sessionStorage.getItem('hasAccess');
         if (sessionAccess === 'true') {
           setHasAccess(true);
-          setIsChecking(false);
         } else {
-          if (!initialized) {
-            setShowSetupModal(true);
-            setShowAccessModal(false);
-          } else {
+          if (initialized) {
             setShowAccessModal(true);
             setShowSetupModal(false);
+            setHasAccess(false);
+          } else {
+            setShowSetupModal(true);
+            setShowAccessModal(false);
           }
-          setIsChecking(false);
         }
       } catch (error) {
         console.error('Failed to check access status:', error);
+      } finally {
         setIsChecking(false);
       }
     };
@@ -362,6 +362,36 @@ function Home() {
         </div>
       ) : (
         <>
+          {isInitialized && !hasAccess && (
+            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+              <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
+                <h3 className="font-bold text-xl mb-6">Enter Access Word</h3>
+                {accessError && (
+                  <div className="alert alert-error mb-4">
+                    <span>{accessError}</span>
+                  </div>
+                )}
+                <input
+                  type="password"
+                  placeholder="Enter access word"
+                  className="input input-bordered w-full mb-4"
+                  value={accessWord}
+                  onChange={(e) => setAccessWord(e.target.value)}
+                  autoFocus
+                />
+                <div className="modal-action">
+                  <button 
+                    className="btn btn-primary"
+                    onClick={handleVerifyAccess}
+                    disabled={!accessWord.trim()}
+                  >
+                    Verify
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
           {showSetupModal && !isInitialized && (
             <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
               <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
@@ -738,36 +768,6 @@ function Home() {
                         disabled={!username.trim() || !selectedTeam}
                       >
                         Join
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {showAccessModal && isInitialized && !hasAccess && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                  <div className="modal-box bg-base-200 p-6 rounded-2xl shadow-lg max-w-md mx-4">
-                    <h3 className="font-bold text-xl mb-6">Enter Access Word</h3>
-                    {accessError && (
-                      <div className="alert alert-error mb-4">
-                        <span>{accessError}</span>
-                      </div>
-                    )}
-                    <input
-                      type="password"
-                      placeholder="Enter access word"
-                      className="input input-bordered w-full mb-4"
-                      value={accessWord}
-                      onChange={(e) => setAccessWord(e.target.value)}
-                      autoFocus
-                    />
-                    <div className="modal-action">
-                      <button 
-                        className="btn btn-primary"
-                        onClick={handleVerifyAccess}
-                        disabled={!accessWord.trim()}
-                      >
-                        Verify
                       </button>
                     </div>
                   </div>
