@@ -117,7 +117,7 @@ const upload = multer({
     }
   },
   limits: {
-    fileSize: 100 * 1024 * 1024 // 100MB limit
+    fileSize: 500 * 1024 // 500KB limit
   }
 });
 
@@ -1094,7 +1094,7 @@ app.get('/api/files/download/:fileId', validateApiKey, async (req, res) => {
     
     // Get file info from database
     const result = await pool.query(
-      `SELECT filename, file_path, original_filename 
+      `SELECT filename, file_path, original_filename, file_type 
        FROM uploaded_files 
        WHERE id = $1`,
       [fileId]
@@ -1105,7 +1105,22 @@ app.get('/api/files/download/:fileId', validateApiKey, async (req, res) => {
     }
 
     const file = result.rows[0];
-    res.download(file.file_path, file.original_filename);
+    
+    // Set proper content type header based on file type
+    const contentType = file.file_type === 'csv' ? 'text/csv' :
+                       file.file_type === 'tsv' ? 'text/tab-separated-values' :
+                       'text/plain';
+    
+    res.setHeader('Content-Type', contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${file.original_filename}"`);
+    
+    // Send the file
+    res.sendFile(file.file_path, { root: '/' }, (err) => {
+      if (err) {
+        console.error('Error sending file:', err);
+        res.status(500).json({ error: 'Failed to download file' });
+      }
+    });
   } catch (error) {
     console.error('Error downloading file:', error);
     res.status(500).json({ error: 'Failed to download file' });

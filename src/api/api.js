@@ -416,7 +416,7 @@ const apiInstance = {
   },
 
   // Update the downloadFile method
-  downloadFile: async (fileId) => {
+  downloadFile: async (fileId, filename) => {
     try {
       const response = await fetch(
         `${API_URL}/api/files/download/${fileId}`,
@@ -433,7 +433,20 @@ const apiInstance = {
 
       // Get the blob from the response
       const blob = await response.blob();
-      return blob;
+      
+      // Create a download link and trigger it
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename; // Use the original filename
+      document.body.appendChild(a);
+      a.click();
+      
+      // Cleanup
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+      
+      return true;
     } catch (error) {
       console.error('Error downloading file:', error);
       throw error;

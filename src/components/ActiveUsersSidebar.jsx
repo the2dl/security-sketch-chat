@@ -4,6 +4,17 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import ConfirmDeleteModal from './modals/ConfirmDeleteModal';
 import { api } from '../api/api';
+import { createPortal } from 'react-dom';
+
+const evidenceGuidance = {
+  description: `500KB limit - AI works best with targeted evidence like:
+• Authentication events for specific users
+• Sign-in logs from Azure AD
+• Endpoint activity logs for short periods
+• Specific firewall rule violations
+• Individual process execution logs
+• DNS query logs for specific domains`
+};
 
 function ActiveUsersSidebar({ 
   activeUsers, 
@@ -37,6 +48,9 @@ function ActiveUsersSidebar({
   const [localActiveUsers, setLocalActiveUsers] = useState(activeUsers);
   const previousActiveUsersRef = useRef(activeUsers);
   const [showStatusMenu, setShowStatusMenu] = useState(false);
+  const [showGuidance, setShowGuidance] = useState(false);
+  const [guidancePosition, setGuidancePosition] = useState({ x: 0, y: 0 });
+  const infoIconRef = useRef(null);
 
   useEffect(() => {
     const handleStorageChange = () => {
@@ -201,6 +215,17 @@ function ActiveUsersSidebar({
     );
   };
 
+  const handleInfoMouseEnter = () => {
+    if (infoIconRef.current) {
+      const rect = infoIconRef.current.getBoundingClientRect();
+      setGuidancePosition({
+        x: rect.right + 10, // Position to the right of the icon with 10px gap
+        y: rect.top + (rect.height / 2)
+      });
+      setShowGuidance(true);
+    }
+  };
+
   return (
     <div className="flex flex-col h-full">
       <div className="card-body">
@@ -231,6 +256,16 @@ function ActiveUsersSidebar({
             <h3 className="font-semibold text-sm uppercase tracking-wide text-base-content/70">
               Evidence Files
             </h3>
+            <div 
+              ref={infoIconRef}
+              onMouseEnter={handleInfoMouseEnter}
+              onMouseLeave={() => setShowGuidance(false)}
+              className="cursor-help"
+            >
+              <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" className="w-4 h-4 stroke-current text-base-content/50">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+            </div>
           </div>
           {uploadedFiles.length === 0 && (
             <button 
@@ -255,7 +290,7 @@ function ActiveUsersSidebar({
               Upload File
             </div>
             <span className="text-xs text-base-content/70 text-center">
-              Supports CSV, TSV, and TXT files
+              Supports CSV, TSV, and TXT files (max 500KB)
             </span>
           </label>
 
@@ -402,6 +437,31 @@ function ActiveUsersSidebar({
         onConfirm={handleConfirmDelete}
         filename={fileToDelete?.original_filename}
       />
+
+      {showGuidance && createPortal(
+        <div 
+          className="fixed z-[9999] shadow-xl bg-base-200 rounded-box w-72 text-sm p-2"
+          style={{
+            left: `${guidancePosition.x}px`,
+            top: `${guidancePosition.y}px`,
+            transform: 'translateY(-50%)',
+          }}
+        >
+          <div className="space-y-2">
+            <p className="font-medium">500KB File Size Limit</p>
+            <p className="text-base-content/70">Our AI works best with targeted evidence like:</p>
+            <ul className="list-disc pl-4 text-base-content/70 space-y-1">
+              <li>Authentication events for specific users</li>
+              <li>Sign-in logs from Azure AD</li>
+              <li>Endpoint activity logs for short periods</li>
+              <li>Specific firewall rule violations</li>
+              <li>Individual process execution logs</li>
+              <li>DNS query logs for specific domains</li>
+            </ul>
+          </div>
+        </div>,
+        document.body
+      )}
     </div>
   );
 }
