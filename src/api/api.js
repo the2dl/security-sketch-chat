@@ -431,14 +431,21 @@ const apiInstance = {
         throw new Error('Failed to download file');
       }
 
-      // Get the blob from the response
+      // Get the filename from Content-Disposition header if available
+      const contentDisposition = response.headers.get('Content-Disposition');
+      let downloadFilename = filename; // Use provided filename as fallback
+      if (contentDisposition) {
+        const filenameMatch = contentDisposition.match(/filename="(.+)"/);
+        if (filenameMatch) {
+          downloadFilename = filenameMatch[1];
+        }
+      }
+
       const blob = await response.blob();
-      
-      // Create a download link and trigger it
       const url = window.URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = filename; // Use the original filename
+      a.download = downloadFilename; // Use extracted or fallback filename
       document.body.appendChild(a);
       a.click();
       
