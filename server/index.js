@@ -110,10 +110,10 @@ const upload = multer({
   storage,
   fileFilter: (req, file, cb) => {
     const ext = path.extname(file.originalname).toLowerCase();
-    if (ext === '.csv' || ext === '.tsv' || ext === '.txt') {
+    if (ext === '.csv' || ext === '.tsv' || ext === '.txt' || ext === '.json') {
       cb(null, true);
     } else {
-      cb(new Error('Only CSV, TSV, and TXT files are allowed'));
+      cb(new Error('Only CSV, TSV, TXT, and JSON files are allowed'));
     }
   },
   limits: {
@@ -1109,6 +1109,7 @@ app.get('/api/files/download/:fileId', validateApiKey, async (req, res) => {
     // Set proper content type header based on file type
     const contentType = file.file_type === 'csv' ? 'text/csv' :
                        file.file_type === 'tsv' ? 'text/tab-separated-values' :
+                       file.file_type === 'json' ? 'application/json' :
                        'text/plain';
     
     res.setHeader('Content-Type', contentType);
@@ -1798,6 +1799,92 @@ app.get('/api/ipinfo/:ip', validateApiKey, async (req, res) => {
   } catch (error) {
     console.error('IP lookup error:', error);
     res.status(500).json({ error: 'Failed to perform IP lookup', details: error.message });
+  }
+});
+
+// Add these new endpoints for AI provider settings
+app.get('/api/ai-settings', validateApiKey, async (req, res) => {
+  try {
+    const result = await pool.query(`
+      SELECT 
+        ai_provider,
+        ai_model_settings,
+        ai_provider_keys
+      FROM platform_settings 
+      LIMIT 1
+    `);
+    
+    if (result.rows.length === 0) {
+      // Return default values if no settings exist
+      return res.json({
+        ai_provider: 'gemini',
+        ai_model_settings: {},
+        ai_provider_keys: {
+          gemini: '',
+          azure: {
+            api_key: '',
+            endpoint: '',
+            deployment: '',
+            api_version: ''
+          }
+        }
+      });
+    }
+    
+    // Ensure we're returning the raw database values
+    res.json(result.rows[0]);
+  } catch (error) {
+    console.error('Error fetching AI settings:', error);
+    res.status(500).json({ error: 'Failed to fetch AI settings' });
+  }
+});
+
+app.put('/api/ai-settings', validateApiKey, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const { provider, modelSettings, providerKeys } = req.body;
+    
+    await client.query('BEGIN');
+    
+    // Get current settings
+    const currentSettings = await client.query(`
+      SELECT ai_provider, ai_provider_keys
+      FROM platform_settings
+      WHERE id = 1
+    `);
+    
+    // Prepare new provider keys object
+    let newProviderKeys = {
+      [provider]: providerKeys[provider] || {}
+    };
+    
+    // Set appropriate model settings based on provider
+    const newModelSettings = provider === 'azure' ? 
+      {} : // Azure doesn't need model settings
+      modelSettings; // Keep Gemini model settings if using Gemini
+    
+    // Update the settings with clean provider keys and appropriate model settings
+    await client.query(`
+      UPDATE platform_settings 
+      SET 
+        ai_provider = $1,
+        ai_model_settings = $2,
+        ai_provider_keys = $3
+      WHERE id = 1
+    `, [provider, newModelSettings, newProviderKeys]);
+    
+    await client.query('COMMIT');
+    
+    res.json({ 
+      success: true,
+      message: `Successfully switched to ${provider} provider`
+    });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    console.error('Error updating AI settings:', error);
+    res.status(500).json({ error: 'Failed to update AI settings' });
+  } finally {
+    client.release();
   }
 });
 

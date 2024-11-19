@@ -30,3 +30,23 @@ CREATE TABLE messages (
     content TEXT NOT NULL,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
 );
+
+-- Add after your existing tables
+CREATE TABLE platform_settings (
+    id SERIAL PRIMARY KEY,
+    admin_key text NOT NULL,
+    system_prompt text,
+    created_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    updated_at timestamp without time zone DEFAULT CURRENT_TIMESTAMP,
+    shown boolean DEFAULT false,
+    evidence_processor_prompt text,
+    sketch_operator_prompt text,
+    ai_provider text DEFAULT 'gemini',
+    ai_model_settings jsonb DEFAULT '{}',
+    ai_provider_keys jsonb DEFAULT '{}'
+);
+
+-- Insert initial row
+INSERT INTO platform_settings (id, admin_key, ai_provider, ai_model_settings, ai_provider_keys)
+VALUES (1, '', 'gemini', '{}', '{}')
+ON CONFLICT (id) DO NOTHING;

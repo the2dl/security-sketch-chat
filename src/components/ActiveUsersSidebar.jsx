@@ -283,14 +283,14 @@ function ActiveUsersSidebar({
             <div className="btn btn-sm btn-primary rounded-xl w-full normal-case">
               <input
                 type="file"
-                accept=".csv,.tsv,.txt"
+                accept=".csv,.tsv,.txt,.json"
                 onChange={onFileUpload}
                 className="hidden"
               />
               Upload File
             </div>
             <span className="text-xs text-base-content/70 text-center">
-              Supports CSV, TSV, and TXT files (max 500KB)
+              Supports CSV, TSV, TXT, and JSON files (max 500KB)
             </span>
           </label>
 

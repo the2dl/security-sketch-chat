@@ -2,7 +2,6 @@ import os
 import json
 import psycopg2
 from datetime import datetime, timezone
-import google.generativeai as genai
 from time import sleep
 import logging
 import subprocess
@@ -11,6 +10,9 @@ import csv
 from dotenv import load_dotenv
 import requests
 import tempfile
+import google.generativeai as genai
+from ai_providers.gemini_provider import GeminiProvider
+from ai_providers.azure_provider import AzureOpenAIProvider
 
 # Load environment variables
 load_dotenv()
@@ -31,12 +33,6 @@ handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
 logging.getLogger().handlers = [handler]
 
-# Configure Gemini API
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY not found in environment variables")
-genai.configure(api_key=GOOGLE_API_KEY)
-
 # Database configuration from environment
 DB_CONFIG = {
     'dbname': os.getenv('DB_NAME', 'security_sketch'),
@@ -53,7 +49,9 @@ if not DB_CONFIG['password']:
 
 class EvidenceProcessor:
     def __init__(self):
-        self.model = genai.GenerativeModel(os.getenv('GEMINI_MODEL', 'gemini-1.5-pro-002'))
+        self.ai_provider = self.initialize_ai_provider()
+        self.ai_provider.wait_for_configuration()
+        
         self.output_dir = os.getenv('OUTPUT_DIR', 'sketch_files')
         self.api_url = os.getenv('API_URL', 'http://host.docker.internal:3000')
         self.api_key = os.getenv('API_KEY')
@@ -138,7 +136,7 @@ class EvidenceProcessor:
             return None
 
     def analyze_file(self, content, file_type, room_name, uploader):
-        """Analyze file content using Gemini"""
+        """Analyze file content using configured AI provider"""
         # Refresh prompt before analysis
         self.fetch_prompt()
         
@@ -167,13 +165,12 @@ class EvidenceProcessor:
         '''
 
         try:
-            content_sample = str(content[:100])  # Increased sample size for better context
+            content_sample = str(content[:100])
             logging.info(f"Analyzing file for room: {room_name}")
             logging.info(f"File type: {file_type}")
             logging.info(f"Uploader: {uploader}")
             logging.info(f"Content preview: {content_sample}...")
 
-            # Format the actual prompt being sent
             formatted_prompt = prompt_template.format(
                 file_type=file_type,
                 room_name=room_name,
@@ -182,10 +179,15 @@ class EvidenceProcessor:
             )
             logging.info(f"Final formatted prompt preview (first 500 chars): {formatted_prompt[:500]}...")
             
-            response = self.model.generate_content(formatted_prompt)
-
-            if response.candidates:
-                response_text = response.candidates[0].content.parts[0].text.strip()
+            # Use the configured AI provider instead of direct Gemini calls
+            response = self.ai_provider.generate_content(
+                formatted_prompt,
+                temperature=0.1,
+                max_tokens=2048
+            )
+            
+            if response:
+                response_text = response.strip()
                 logging.info(f"Raw response preview (first 200 chars): {response_text[:200]}...")
                 
                 if "No security content found" in response_text:
@@ -197,7 +199,7 @@ class EvidenceProcessor:
                     logging.info(f"First result preview: {results[0] if results else 'No results'}")
                     return results
             else:
-                logging.warning("No response candidates received from Gemini")
+                logging.warning("No response received from AI provider")
                 return []
 
         except Exception as e:
@@ -371,6 +373,41 @@ class EvidenceProcessor:
             except Exception as e:
                 logging.error(f"Error in main loop: {e}")
                 sleep(60)
+
+    def initialize_ai_provider(self):
+        """Initialize the configured AI provider"""
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT ai_provider
+                FROM platform_settings
+                LIMIT 1
+            """)
+            
+            result = cur.fetchone()
+            if result:
+                provider_name = result[0]
+                
+                if provider_name == 'azure':
+                    logging.info("Initializing Azure OpenAI provider")
+                    return AzureOpenAIProvider()
+                else:
+                    logging.info("Initializing Gemini provider")
+                    return GeminiProvider()
+            
+            logging.info("No provider configured, defaulting to Gemini")
+            return GeminiProvider()  # fallback to default
+            
+        except Exception as e:
+            logging.error(f"Error initializing AI provider: {e}")
+            return GeminiProvider()  # fallback to default
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
 
 if __name__ == "__main__":
     logging.info("Starting Evidence Processor")

@@ -8,6 +8,8 @@ import logging
 import subprocess
 import uuid
 from dotenv import load_dotenv
+from ai_providers.gemini_provider import GeminiProvider
+from ai_providers.azure_provider import AzureOpenAIProvider
 
 # Load environment variables
 load_dotenv()
@@ -28,12 +30,6 @@ handler = logging.StreamHandler()
 handler.setFormatter(JsonFormatter(datefmt='%Y-%m-%d %H:%M:%S'))
 logging.getLogger().handlers = [handler]
 
-# Configure Gemini API
-GOOGLE_API_KEY = os.getenv('GOOGLE_API_KEY')
-if not GOOGLE_API_KEY:
-    raise ValueError("GOOGLE_API_KEY not found in environment variables")
-genai.configure(api_key=GOOGLE_API_KEY)
-
 # Database configuration from environment
 DB_CONFIG = {
     'dbname': os.getenv('DB_NAME', 'security_sketch'),
@@ -50,7 +46,9 @@ if not DB_CONFIG['password']:
 
 class SecuritySketchOperator:
     def __init__(self):
-        self.model = genai.GenerativeModel(os.getenv('GEMINI_MODEL', 'gemini-1.5-pro-002'))
+        self.ai_provider = self.initialize_ai_provider()
+        self.ai_provider.wait_for_configuration()
+        
         self.last_processed_timestamps = {}
         self.output_dir = os.getenv('OUTPUT_DIR', 'sketch_files')
         
@@ -362,40 +360,45 @@ class SecuritySketchOperator:
             if 'conn' in locals():
                 conn.close()
 
+    def initialize_ai_provider(self):
+        """Initialize the configured AI provider"""
+        try:
+            conn = psycopg2.connect(**DB_CONFIG)
+            cur = conn.cursor()
+            
+            cur.execute("""
+                SELECT ai_provider, ai_model_settings
+                FROM platform_settings
+                LIMIT 1
+            """)
+            
+            result = cur.fetchone()
+            if result:
+                provider_name, settings = result
+                
+                if provider_name == 'azure':
+                    return AzureOpenAIProvider()
+                else:  # default to gemini
+                    return GeminiProvider()
+            
+            return GeminiProvider()  # fallback to default
+            
+        except Exception as e:
+            logging.error(f"Error initializing AI provider: {e}")
+            return GeminiProvider()  # fallback to default
+        finally:
+            if 'cur' in locals():
+                cur.close()
+            if 'conn' in locals():
+                conn.close()
+
     def analyze_messages(self, messages_by_room):
-        """Send messages to Gemini for analysis and get Timesketch format back"""
+        """Send messages to AI provider for analysis and get Timesketch format back"""
         if not messages_by_room:
             logging.info("No new messages to analyze")
             return []
 
         logging.info(f"Analyzing messages from {len(messages_by_room)} rooms")
-        
-        # Configure safety settings to allow security-related content
-        generation_config = {
-            "temperature": 0.1,
-            "top_p": 1,
-            "top_k": 1,
-            "max_output_tokens": 2048,
-        }
-
-        safety_settings = [
-            {
-                "category": "HARM_CATEGORY_DANGEROUS_CONTENT",
-                "threshold": "BLOCK_NONE",
-            },
-            {
-                "category": "HARM_CATEGORY_HATE_SPEECH",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-            },
-            {
-                "category": "HARM_CATEGORY_HARASSMENT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-            },
-            {
-                "category": "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-                "threshold": "BLOCK_MEDIUM_AND_ABOVE",
-            },
-        ]
 
         # Update the prompt_template to use the database prompt but escape existing curly braces
         prompt_template = f'''
@@ -428,20 +431,15 @@ class SecuritySketchOperator:
 
                 logging.info(f"Analyzing messages for room: {room_data['name']}")
 
-                response = self.model.generate_content(
+                # Use the configured AI provider
+                response = self.ai_provider.generate_content(
                     prompt,
-                    generation_config=generation_config,
-                    safety_settings=safety_settings
+                    temperature=0.1,
+                    max_tokens=2048
                 )
                 
-                if response.candidates:
-                    response_text = response.candidates[0].content.parts[0].text.strip()
-                    
-                    # Remove markdown code block formatting
-                    response_text = response_text.replace('```jsonl', '')
-                    response_text = response_text.replace('```json', '')
-                    response_text = response_text.replace('```', '')
-                    response_text = response_text.strip()
+                if response:
+                    response_text = response.strip()
                     
                     force_process = any(msg['llm_required'] for msg in room_data['messages'])
                     
@@ -460,7 +458,7 @@ class SecuritySketchOperator:
                                     logging.error(f"Invalid JSON line: {line}")
                                     logging.error(f"JSON error: {je}")
                 else:
-                    logging.warning("No response from Gemini")
+                    logging.warning("No response from AI provider")
                     
             except Exception as e:
                 logging.error(f"Error processing room {room_data['name']}: {str(e)}")
@@ -519,8 +517,8 @@ class SecuritySketchOperator:
 if __name__ == "__main__":
     logging.info("Starting Security Sketch Operator")
     
-    # Validate required environment variables
-    required_vars = ['API_KEY', 'DB_PASSWORD', 'GOOGLE_API_KEY']
+    # Update required vars to remove GOOGLE_API_KEY
+    required_vars = ['API_KEY', 'DB_PASSWORD']
     missing_vars = [var for var in required_vars if not os.getenv(var)]
     
     if missing_vars:

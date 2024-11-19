@@ -765,6 +765,55 @@ const apiInstance = {
     
     return response.json();
   },
+
+  // Add these new methods for AI provider settings
+  getAISettings: async () => {
+    try {
+      const response = await fetchWithAuth(`${API_URL}/api/ai-settings`);
+      
+      if (!response.ok) {
+        throw new Error('Failed to fetch AI settings');
+      }
+      
+      const data = await response.json();
+      console.log('Fetched AI settings:', data); // Debug log
+      return data;
+    } catch (error) {
+      console.error('Error in getAISettings:', error);
+      throw error;
+    }
+  },
+
+  updateAISettings: async (settings) => {
+    // Ensure we're only sending the relevant provider's keys and settings
+    const { provider, modelSettings, providerKeys } = settings;
+    
+    // Clean up the provider keys to only include the selected provider
+    const cleanProviderKeys = {
+        [provider]: providerKeys[provider] || {}
+    };
+    
+    // Set appropriate model settings based on provider
+    const cleanModelSettings = provider === 'azure' ? 
+        {} : // Azure doesn't need model settings
+        modelSettings; // Keep Gemini model settings if using Gemini
+    
+    const response = await fetchWithAuth(`${API_URL}/api/ai-settings`, {
+        method: 'PUT',
+        body: JSON.stringify({
+            provider,
+            modelSettings: cleanModelSettings,
+            providerKeys: cleanProviderKeys
+        })
+    });
+    
+    if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || 'Failed to update AI settings');
+    }
+    
+    return response.json();
+  },
 };
 
 export { apiInstance as api };

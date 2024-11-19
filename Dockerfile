@@ -10,7 +10,7 @@ RUN apt-get update && \
 
 # Install dependencies
 RUN pip3 install timesketch-cli-client flask flask-cors psycopg2-binary \
-    google-generativeai python-dotenv requests
+    google-generativeai python-dotenv requests openai
 
 # Create necessary directories
 RUN mkdir -p /app/flask_api /app/sketch_files /app/logs && \
@@ -22,6 +22,10 @@ COPY entrypoint.sh /entrypoint.sh
 COPY flask_api /app/flask_api/
 COPY security_sketch_operator.py /app/flask_api/security_sketch_operator.py
 COPY evidence_processor.py /app/flask_api/evidence_processor.py
+
+# Ensure ai_providers directory exists and is copied
+RUN mkdir -p /app/flask_api/ai_providers
+COPY flask_api/ai_providers/* /app/flask_api/ai_providers/
 
 # Set permissions
 RUN chmod +x /configure_timesketch.exp /entrypoint.sh && \
