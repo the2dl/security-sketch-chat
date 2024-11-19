@@ -188,6 +188,13 @@ class EvidenceProcessor:
             
             if response:
                 response_text = response.strip()
+                
+                # Add markdown stripping
+                response_text = response_text.replace('```jsonl', '')
+                response_text = response_text.replace('```json', '')
+                response_text = response_text.replace('```', '')
+                response_text = response_text.strip()
+                
                 logging.info(f"Raw response preview (first 200 chars): {response_text[:200]}...")
                 
                 if "No security content found" in response_text:

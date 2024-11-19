@@ -72,3 +72,20 @@ Example:
 Message: "I've completed reviewing all emails involved in the phishing campaign and saw no additional impact."
 Should create:
 {"message": "Email investigation complete: No additional compromise identified from phishing campaign [T1566.001]", "datetime": "2024-11-08T17:44:19Z", "timestamp_desc": "Investigation Finding", "observer_name": "dan"}
+
+Keyword/Pattern Recognition:
+- "validate connectivity"
+- "check connection"
+- "test access"
+- "verify connection"
+- "ping" (when used in a network context)
+
+Combine these with indicators like domain names (sev1.com), usernames (jsmith), IP addresses, etc.
+
+Contextual Analysis:
+
+Even if a message appears conversational, analyze the context for security implications. If the sentence mentions activities related to network verification, user validation, or access testing, it should be treated as LLM Required.
+
+Default to Security Relevance:
+
+When in doubt, lean towards classifying a message as LLM Required if it contains any technical indicators or action verbs related to security investigations.

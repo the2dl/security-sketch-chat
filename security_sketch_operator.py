@@ -398,6 +398,13 @@ class SecuritySketchOperator:
             logging.info("No new messages to analyze")
             return []
 
+        # Refresh prompt before analysis
+        self.fetch_prompt()
+        
+        if not self.sketch_operator_prompt:
+            logging.error("No sketch operator prompt available")
+            return []
+
         logging.info(f"Analyzing messages from {len(messages_by_room)} rooms")
 
         # Update the prompt_template to use the database prompt but escape existing curly braces
@@ -440,6 +447,12 @@ class SecuritySketchOperator:
                 
                 if response:
                     response_text = response.strip()
+                    
+                    # Add back markdown stripping
+                    response_text = response_text.replace('```jsonl', '')
+                    response_text = response_text.replace('```json', '')
+                    response_text = response_text.replace('```', '')
+                    response_text = response_text.strip()
                     
                     force_process = any(msg['llm_required'] for msg in room_data['messages'])
                     
