@@ -1918,3 +1918,22 @@ app.put('/api/ai-settings', validateApiKey, async (req, res) => {
   }
 });
 
+app.get('/api/base64/:encodedString', validateApiKey, async (req, res) => {
+  try {
+    const { encodedString } = req.params;
+    
+    // Decode base64 string
+    const decodedString = Buffer.from(encodedString, 'base64').toString('utf-8');
+    
+    res.json({ 
+      decoded: decodedString,
+      original: encodedString 
+    });
+  } catch (error) {
+    res.status(500).json({ 
+      error: 'Failed to decode base64 string',
+      details: error.message 
+    });
+  }
+});
+

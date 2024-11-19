@@ -833,6 +833,17 @@ const apiInstance = {
       throw new Error('Failed to update integration keys');
     }
     return response.json();
+  },
+
+  performBase64Decode: async (encodedString) => {
+    const response = await fetchWithAuth(`${API_URL}/api/base64/${encodeURIComponent(encodedString)}`);
+    
+    if (!response.ok) {
+      const error = await response.json();
+      throw new Error(error.error || 'Base64 decoding failed');
+    }
+    
+    return response.json();
   }
 };
 

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { api } from '../api/api';
 import { formatWhoisResult, parseWhoisData } from '../utils/whoisUtil';
 import { formatVTResult } from '../utils/vtUtil';
-import { FaNetworkWired } from 'react-icons/fa';
+import { FaNetworkWired, FaLock } from 'react-icons/fa';
 
 export const COMMANDS = {
   include: {
@@ -137,6 +137,37 @@ export const COMMANDS = {
       } catch (error) {
         return {
           content: `Error performing IP lookup: ${error.message}`,
+          llm_required: true,
+          messageType: 'command',
+          isError: true
+        };
+      }
+    }
+  },
+  base64: {
+    description: 'Decode a base64 encoded string',
+    handler: async (message) => {
+      const encodedString = message.replace('/base64', '').trim();
+      if (!encodedString) {
+        return {
+          content: 'Please provide a base64 encoded string (e.g., /base64 SGVsbG8gV29ybGQ=)',
+          llm_required: false,
+          messageType: 'command',
+          isError: true
+        };
+      }
+      
+      try {
+        const result = await api.performBase64Decode(encodedString);
+        
+        return {
+          content: `Base64 Decode:\n\`\`\`\nOriginal: ${result.original}\nDecoded:  ${result.decoded}\n\`\`\``,
+          llm_required: true,
+          messageType: 'command'
+        };
+      } catch (error) {
+        return {
+          content: `Error decoding base64 string: ${error.message}`,
           llm_required: true,
           messageType: 'command',
           isError: true

@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { api } from '../api/api';
 import data from '@emoji-mart/data';
 import Picker from '@emoji-mart/react';
-import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode, FaFileContract, FaNetworkWired } from 'react-icons/fa';
+import { FaExternalLinkAlt, FaCopy, FaFileUpload, FaCode, FaFileContract, FaNetworkWired, FaLock } from 'react-icons/fa';
 import { HiOutlineLogout, HiUserAdd } from 'react-icons/hi';
 import ConfirmCloseModal from './modals/ConfirmCloseModal';
 import SecretKeyModal from './modals/SecretKeyModal';
@@ -1534,7 +1534,9 @@ function ChatRoom() {
                             ) : msg.content.includes('VirusTotal results') ? (
                               <SiVirustotal className="w-3 h-3 text-indigo-400" />
                             ) : msg.content.includes('WHOIS lookup') ? (
-                              <TbWorldWww className="w-3 h-3 text-indigo-400" />
+                              <TbWorldWww className="w-3.h-3 text-indigo-400" />
+                            ) : msg.content.includes('Base64 Decode') ? (
+                              <FaLock className="w-3 h-3 text-green-400" />
                             ) : msg.content.includes('waves a security policy') ? (
                               <FaFileContract className="w-3 h-3 text-indigo-400" />
                             ) : msg.llm_required ? (
@@ -1553,7 +1555,7 @@ function ChatRoom() {
                                 : 'text-xs text-base-content/50 bg-base-300/30 px-3 py-1'
                             : msg.messageType === 'command' || msg.message_type === 'command'
                               ? `inline-block px-4 py-2 ${
-                                  msg.llm_required || msg.content.includes('/whois') || msg.content.includes('/vt') || msg.content.includes('/ipinfo')
+                                  msg.llm_required || msg.content.includes('/whois') || msg.content.includes('/vt') || msg.content.includes('/ipinfo') || msg.content.includes('Base64 Decode')
                                     ? 'bg-purple-400/20 text-purple-300'  // Style for LLM-required commands
                                     : 'bg-indigo-400/20 text-indigo-400 italic'  // Style for other commands
                                 }`
@@ -1568,7 +1570,7 @@ function ChatRoom() {
                               }`
                         }`}>
                           {msg.messageType === 'command' || msg.message_type === 'command' 
-                            ? msg.llm_required
+                            ? msg.llm_required || msg.content.includes('Base64 Decode')
                               ? (
                                 <>
                                   <span className="text-xs font-medium mr-2">[AI Processing]</span>
@@ -1640,6 +1642,8 @@ function ChatRoom() {
                               <SiVirustotal className="w-3.5 h-3.5 text-indigo-400" />
                             ) : cmd === 'whois' ? (
                               <TbWorldWww className="w-3.5 h-3.5 text-indigo-400" />
+                            ) : cmd === 'base64' ? (
+                              <FaLock className="w-3.5 h-3.5 text-green-400" />
                             ) : (
                               <FaTerminal className="w-3.5 h-3.5 text-indigo-400" />
                             )}
