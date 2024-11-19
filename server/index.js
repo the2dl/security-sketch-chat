@@ -1729,20 +1729,23 @@ app.get('/api/whois/:domain', validateApiKey, async (req, res) => {
   }
 });
 
-// Add near other API endpoints
+// Update the VT endpoint
 app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
   try {
     const { indicator } = req.params;
-    const VT_API_KEY = process.env.VT_API_KEY;
     
-    if (!VT_API_KEY) {
+    // Get VT key from database instead of env
+    const settingsResult = await pool.query('SELECT integration_keys FROM platform_settings WHERE id = 1');
+    const vtApiKey = settingsResult.rows[0]?.integration_keys?.virustotal;
+    
+    if (!vtApiKey) {
       return res.status(500).json({ error: 'VirusTotal API key not configured' });
     }
 
     // First get the main domain data
     const mainResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}`, {
       headers: {
-        'x-apikey': VT_API_KEY
+        'x-apikey': vtApiKey
       }
     });
 
@@ -1755,7 +1758,7 @@ app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
     // Then get the resolutions data
     const resolutionsResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}/resolutions`, {
       headers: {
-        'x-apikey': VT_API_KEY
+        'x-apikey': vtApiKey
       }
     });
 
@@ -1772,21 +1775,22 @@ app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
   }
 });
 
-// Add near other API endpoints
+// Update the IPInfo endpoint
 app.get('/api/ipinfo/:ip', validateApiKey, async (req, res) => {
   try {
     const { ip } = req.params;
-    const IPINFO_TOKEN = process.env.IPINFO_TOKEN;
     
-    // Basic IP validation
-    const ipRegex = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
-    if (!ipRegex.test(ip)) {
-      return res.status(400).json({ error: 'Invalid IP address format' });
+    // Get IPInfo token from database instead of env
+    const settingsResult = await pool.query('SELECT integration_keys FROM platform_settings WHERE id = 1');
+    const ipinfoToken = settingsResult.rows[0]?.integration_keys?.ipinfo;
+    
+    if (!ipinfoToken) {
+      return res.status(500).json({ error: 'IPInfo token not configured' });
     }
 
     const response = await fetch(`https://ipinfo.io/${ip}/json`, {
       headers: {
-        'Authorization': `Bearer ${IPINFO_TOKEN}`
+        'Authorization': `Bearer ${ipinfoToken}`
       }
     });
     
@@ -1802,10 +1806,33 @@ app.get('/api/ipinfo/:ip', validateApiKey, async (req, res) => {
   }
 });
 
-// Add these new endpoints for AI provider settings
-app.get('/api/ai-settings', validateApiKey, async (req, res) => {
+// Add new endpoints for integration keys
+app.get('/api/integration-keys', validateApiKey, async (req, res) => {
   try {
-    const result = await pool.query(`
+    const result = await pool.query('SELECT integration_keys FROM platform_settings WHERE id = 1');
+    res.json(result.rows[0]?.integration_keys || {});
+  } catch (error) {
+    console.error('Error fetching integration keys:', error);
+    res.status(500).json({ error: 'Failed to fetch integration keys' });
+  }
+});
+
+app.put('/api/integration-keys', validateApiKey, async (req, res) => {
+  try {
+    const { keys } = req.body;
+    await pool.query('UPDATE platform_settings SET integration_keys = $1 WHERE id = 1', [keys]);
+    res.json({ success: true });
+  } catch (error) {
+    console.error('Error updating integration keys:', error);
+    res.status(500).json({ error: 'Failed to update integration keys' });
+  }
+});
+
+// Add AI settings endpoints
+app.get('/api/ai-settings', validateApiKey, async (req, res) => {
+  const client = await pool.connect();
+  try {
+    const result = await client.query(`
       SELECT 
         ai_provider,
         ai_model_settings,
@@ -1836,6 +1863,8 @@ app.get('/api/ai-settings', validateApiKey, async (req, res) => {
   } catch (error) {
     console.error('Error fetching AI settings:', error);
     res.status(500).json({ error: 'Failed to fetch AI settings' });
+  } finally {
+    client.release();
   }
 });
 
@@ -1869,7 +1898,8 @@ app.put('/api/ai-settings', validateApiKey, async (req, res) => {
       SET 
         ai_provider = $1,
         ai_model_settings = $2,
-        ai_provider_keys = $3
+        ai_provider_keys = $3,
+        updated_at = CURRENT_TIMESTAMP
       WHERE id = 1
     `, [provider, newModelSettings, newProviderKeys]);
     

@@ -814,6 +814,26 @@ const apiInstance = {
     
     return response.json();
   },
+
+  // Add these new methods
+  getIntegrationKeys: async () => {
+    const response = await fetchWithAuth(`${API_URL}/api/integration-keys`);
+    if (!response.ok) {
+      throw new Error('Failed to fetch integration keys');
+    }
+    return response.json();
+  },
+
+  updateIntegrationKeys: async (keys) => {
+    const response = await fetchWithAuth(`${API_URL}/api/integration-keys`, {
+      method: 'PUT',
+      body: JSON.stringify({ keys })
+    });
+    if (!response.ok) {
+      throw new Error('Failed to update integration keys');
+    }
+    return response.json();
+  }
 };
 
 export { apiInstance as api };

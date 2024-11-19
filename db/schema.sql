@@ -43,10 +43,27 @@ CREATE TABLE platform_settings (
     sketch_operator_prompt text,
     ai_provider text DEFAULT 'gemini',
     ai_model_settings jsonb DEFAULT '{}',
-    ai_provider_keys jsonb DEFAULT '{}'
+    ai_provider_keys jsonb DEFAULT '{}',
+    integration_keys jsonb DEFAULT '{"virustotal": "", "ipinfo": ""}'::jsonb,
+    access_word text,
+    access_word_set_at timestamp without time zone
 );
 
 -- Insert initial row
-INSERT INTO platform_settings (id, admin_key, ai_provider, ai_model_settings, ai_provider_keys)
-VALUES (1, '', 'gemini', '{}', '{}')
+INSERT INTO platform_settings (
+    id, 
+    admin_key, 
+    ai_provider, 
+    ai_model_settings, 
+    ai_provider_keys,
+    integration_keys
+)
+VALUES (
+    1, 
+    '', 
+    'gemini', 
+    '{}', 
+    '{}',
+    '{"virustotal": "", "ipinfo": ""}'::jsonb
+)
 ON CONFLICT (id) DO NOTHING;

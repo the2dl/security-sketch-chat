@@ -33,6 +33,10 @@ function Admin() {
   });
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState('teams');
+  const [integrationKeys, setIntegrationKeys] = useState({
+    virustotal: '',
+    ipinfo: ''
+  });
 
   // Add useEffect for initial admin key check
   useEffect(() => {
@@ -46,6 +50,13 @@ function Admin() {
   useEffect(() => {
     if (isAuthorized) {
       fetchAISettings();
+    }
+  }, [isAuthorized]);
+
+  // Add useEffect to fetch integration keys
+  useEffect(() => {
+    if (isAuthorized) {
+      fetchIntegrationKeys();
     }
   }, [isAuthorized]);
 
@@ -98,6 +109,15 @@ function Admin() {
     } catch (err) {
       setError('Failed to fetch AI settings');
       console.error('Error fetching AI settings:', err);
+    }
+  };
+
+  const fetchIntegrationKeys = async () => {
+    try {
+      const result = await api.getIntegrationKeys();
+      setIntegrationKeys(result);
+    } catch (err) {
+      setError('Failed to fetch integration keys');
     }
   };
 
@@ -185,6 +205,16 @@ function Admin() {
     }
   };
 
+  const handleUpdateIntegrationKeys = async (e) => {
+    e.preventDefault();
+    try {
+      await api.updateIntegrationKeys(integrationKeys);
+      showToast('Integration keys updated successfully');
+    } catch (err) {
+      setError('Failed to update integration keys');
+    }
+  };
+
   return (
     <>
       <Helmet>
@@ -252,6 +282,13 @@ function Admin() {
               onClick={() => setActiveTab('settings')}
             >
               AI Settings
+            </button>
+            <button
+              role="tab"
+              className={`tab ${activeTab === 'integrations' ? 'tab-active' : ''}`}
+              onClick={() => setActiveTab('integrations')}
+            >
+              Integrations
             </button>
           </div>
 
@@ -553,6 +590,76 @@ function Admin() {
 
                     <button type="submit" className="btn btn-primary w-full">
                       Update AI Settings
+                    </button>
+                  </form>
+                </div>
+              </div>
+            )}
+
+            {activeTab === 'integrations' && (
+              <div className="card bg-base-200 shadow-xl">
+                <div className="card-body">
+                  <h2 className="card-title text-2xl mb-6">Integration Settings</h2>
+                  
+                  <form onSubmit={handleUpdateIntegrationKeys} className="space-y-6">
+                    <div className="form-control">
+                      <label className="label">
+                        <span className="label-text text-lg font-medium">VirusTotal API Key</span>
+                        <div className="tooltip tooltip-right" data-tip="API key from VirusTotal. Create one at: https://www.virustotal.com/gui/my-apikey">
+                          <span className="cursor-help">ⓘ</span>
+                        </div>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="password"
+                          className="input input-bordered flex-1"
+                          value={integrationKeys.virustotal}
+                          onChange={(e) => setIntegrationKeys({
+                            ...integrationKeys,
+                            virustotal: e.target.value
+                          })}
+                        />
+                        <a 
+                          href="https://www.virustotal.com/gui/my-apikey"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="link link-primary text-sm"
+                        >
+                          Get Key
+                        </a>
+                      </div>
+                    </div>
+
+                    <div className="form-control">
+                      <label className="label">
+                        <span className="label-text text-lg font-medium">IPInfo Token</span>
+                        <div className="tooltip tooltip-right" data-tip="Access token from IPInfo. Create one at: https://ipinfo.io/signup">
+                          <span className="cursor-help">ⓘ</span>
+                        </div>
+                      </label>
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="password"
+                          className="input input-bordered flex-1"
+                          value={integrationKeys.ipinfo}
+                          onChange={(e) => setIntegrationKeys({
+                            ...integrationKeys,
+                            ipinfo: e.target.value
+                          })}
+                        />
+                        <a 
+                          href="https://ipinfo.io/signup"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="link link-primary text-sm"
+                        >
+                          Get Token
+                        </a>
+                      </div>
+                    </div>
+
+                    <button type="submit" className="btn btn-primary w-full">
+                      Update Integration Keys
                     </button>
                   </form>
                 </div>

@@ -12,17 +12,19 @@ BEGIN
         ALTER TABLE platform_settings ADD COLUMN access_word_set_at timestamp without time zone;
     END IF;
 
-    -- Insert initial row if not exists
-    IF NOT EXISTS (SELECT 1 FROM platform_settings WHERE id = 1) THEN
-        INSERT INTO platform_settings (id, admin_key, access_word, access_word_set_at)
-        VALUES (1, '', NULL, NULL);
+    -- Add integration_keys column if it doesn't exist
+    IF NOT EXISTS (
+        SELECT 1 
+        FROM information_schema.columns 
+        WHERE table_name = 'platform_settings' 
+        AND column_name = 'integration_keys'
+    ) THEN
+        ALTER TABLE platform_settings ADD COLUMN integration_keys jsonb DEFAULT '{
+            "virustotal": "",
+            "ipinfo": ""
+        }'::jsonb;
     END IF;
-END
-$$; 
 
--- Add AI provider columns
-DO $$
-BEGIN
     -- Add AI provider columns if they don't exist
     IF NOT EXISTS (
         SELECT 1 
@@ -37,8 +39,26 @@ BEGIN
 
     -- Insert initial row if not exists
     IF NOT EXISTS (SELECT 1 FROM platform_settings WHERE id = 1) THEN
-        INSERT INTO platform_settings (id, admin_key, ai_provider, ai_model_settings, ai_provider_keys)
-        VALUES (1, '', 'gemini', '{}', '{}');
+        INSERT INTO platform_settings (
+            id, 
+            admin_key, 
+            access_word, 
+            access_word_set_at,
+            ai_provider,
+            ai_model_settings,
+            ai_provider_keys,
+            integration_keys
+        )
+        VALUES (
+            1, 
+            '', 
+            NULL, 
+            NULL,
+            'gemini',
+            '{}',
+            '{}',
+            '{"virustotal": "", "ipinfo": ""}'::jsonb
+        );
     END IF;
 END
 $$; 
