@@ -7,6 +7,7 @@
         "howler": "^2.2.4",
         "multer": "^1.4.5-lts.1",
         "node-fetch": "^3.3.2",
+        "openai": "^4.77.0",
         "pg": "^8.10.0",
         "socket.io": "^4.6.1",
         "use-sound": "^4.0.3",

@@ -10,6 +10,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { GoogleGenerativeAI } = require('@google/generative-ai');
 const whois = require('whois-json');
+const { OpenAI } = require('openai');
 
 const app = express();
 const server = http.createServer(app);
@@ -121,44 +122,62 @@ const upload = multer({
   }
 });
 
-// Initialize Gemini
-const genai = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY);
-const model = genai.getGenerativeModel({ model: 'gemini-1.5-pro-002' });
+// Add this helper function to get AI provider configuration
+const getAIProvider = async (pool) => {
+  try {
+    const result = await pool.query(`
+      SELECT ai_provider, integration_keys, ai_model_settings, ai_provider_keys
+      FROM platform_settings
+      LIMIT 1
+    `);
 
-// Add the bot chat endpoint
+    if (!result.rows[0]) {
+      throw new Error('No AI provider configuration found');
+    }
+
+    const { ai_provider, integration_keys, ai_model_settings, ai_provider_keys } = result.rows[0];
+
+    if (ai_provider === 'azure') {
+      const azure = ai_provider_keys?.azure || {};
+      const client = new OpenAI({
+        apiKey: azure.api_key,
+        baseURL: `${azure.endpoint}/openai/deployments/${azure.deployment}`,
+        defaultQuery: { 'api-version': azure.api_version },
+        defaultHeaders: { 'api-key': azure.api_key }
+      });
+      return { provider: 'azure', client, settings: ai_model_settings };
+    } else {
+      // Default to Gemini
+      const geminiKey = ai_provider_keys?.gemini;
+      if (!geminiKey) {
+        throw new Error('Gemini API key not configured');
+      }
+      const genai = new GoogleGenerativeAI(geminiKey);
+      const model = genai.getGenerativeModel({ model: ai_model_settings?.model_name || 'gemini-1.5-pro-002' });
+      return { provider: 'gemini', client: model, settings: ai_model_settings };
+    }
+  } catch (error) {
+    console.error('Error getting AI provider:', error);
+    throw error;
+  }
+};
+
+// Update the bot chat endpoint
 app.post('/api/chat/bot', validateApiKey, async (req, res) => {
   const { message, roomId, username } = req.body;
 
   try {
+    const { provider, client, settings } = await getAIProvider(pool);
+
+    // Common configuration for both providers
     const generationConfig = {
       temperature: 0.1,
       topP: 1,
-      topK: 1,
       maxOutputTokens: 2048,
     };
 
-    const safetySettings = [
-      {
-        category: "HARM_CATEGORY_DANGEROUS_CONTENT",
-        threshold: "BLOCK_NONE",
-      },
-      {
-        category: "HARM_CATEGORY_HATE_SPEECH",
-        threshold: "BLOCK_MEDIUM_AND_ABOVE",
-      },
-      {
-        category: "HARM_CATEGORY_HARASSMENT",
-        threshold: "BLOCK_MEDIUM_AND_ABOVE",
-      },
-      {
-        category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
-        threshold: "BLOCK_MEDIUM_AND_ABOVE",
-      },
-    ];
-
     const userQuestion = message.replace(/@sketchy/i, '').trim();
     
-    // Combine the system prompt and user question into a single context
     const prompt = `You are sketchy, an AI assistant focused exclusively on information security, digital forensics, and IT security topics. 
 
 STRICT RULES:
@@ -173,20 +192,48 @@ Current context: You are assisting in a security investigation chat room.
 
 User question: ${userQuestion}`;
 
-    const chat = [
-      { role: "user", parts: [{ text: prompt }] }
-    ];
+    let response;
+    if (provider === 'azure') {
+      response = await client.chat.completions.create({
+        model: settings?.model_name || 'gpt-4',
+        messages: [{ role: 'user', content: prompt }],
+        temperature: generationConfig.temperature,
+        max_tokens: generationConfig.maxOutputTokens,
+        top_p: generationConfig.topP
+      });
+      response = response.choices[0].message.content.trim();
+    } else {
+      // Gemini-specific configuration
+      const safetySettings = [
+        {
+          category: "HARM_CATEGORY_DANGEROUS_CONTENT",
+          threshold: "BLOCK_NONE",
+        },
+        {
+          category: "HARM_CATEGORY_HATE_SPEECH",
+          threshold: "BLOCK_NONE",
+        },
+        {
+          category: "HARM_CATEGORY_HARASSMENT",
+          threshold: "BLOCK_NONE",
+        },
+        {
+          category: "HARM_CATEGORY_SEXUALLY_EXPLICIT",
+          threshold: "BLOCK_NONE",
+        },
+      ];
 
-    const result = await model.generateContent({
-      contents: chat,
-      generationConfig,
-      safetySettings,
-    });
+      const chat = [{ role: "user", parts: [{ text: prompt }] }];
+      const result = await client.generateContent({
+        contents: chat,
+        generationConfig,
+        safetySettings,
+      });
+      response = result.response.text().trim();
+    }
 
-    const response = result.response;
     const timestamp = new Date().toISOString();
     
-    // Create both messages with unique IDs
     const userMessage = {
       content: message,
       username: username,
@@ -195,14 +242,13 @@ User question: ${userQuestion}`;
     };
 
     const botMessage = {
-      content: response.text().trim(),
+      content: response,
       username: 'sketchy',
       timestamp: timestamp,
       isBot: true,
       id: `bot-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
     };
 
-    // Emit both messages through socket
     io.in(roomId).emit('new_message', userMessage);
     io.in(roomId).emit('bot_message', botMessage);
 
