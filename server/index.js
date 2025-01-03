@@ -1742,8 +1742,24 @@ app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
       return res.status(500).json({ error: 'VirusTotal API key not configured' });
     }
 
-    // First get the main domain data
-    const mainResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}`, {
+    // Determine indicator type and use appropriate endpoint
+    let apiUrl;
+    if (/^[a-f0-9]{32}$/i.test(indicator)) {
+      // MD5 hash
+      apiUrl = `https://www.virustotal.com/api/v3/files/${indicator}`;
+    } else if (/^[a-f0-9]{64}$/i.test(indicator)) {
+      // SHA256 hash
+      apiUrl = `https://www.virustotal.com/api/v3/files/${indicator}`;
+    } else if (/^(?:\d{1,3}\.){3}\d{1,3}$/.test(indicator)) {
+      // IP address
+      apiUrl = `https://www.virustotal.com/api/v3/ip_addresses/${indicator}`;
+    } else {
+      // Domain
+      apiUrl = `https://www.virustotal.com/api/v3/domains/${indicator}`;
+    }
+
+    // Make the API request
+    const mainResponse = await fetch(apiUrl, {
       headers: {
         'x-apikey': vtApiKey
       }
@@ -1755,17 +1771,18 @@ app.get('/api/vt/:indicator', validateApiKey, async (req, res) => {
 
     const mainData = await mainResponse.json();
     
-    // Then get the resolutions data
-    const resolutionsResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}/resolutions`, {
-      headers: {
-        'x-apikey': vtApiKey
-      }
-    });
+    // Only fetch resolutions for domains
+    if (!indicator.match(/^(?:\d{1,3}\.){3}\d{1,3}$/) && !indicator.match(/^[a-f0-9]{32,64}$/i)) {
+      const resolutionsResponse = await fetch(`https://www.virustotal.com/api/v3/domains/${indicator}/resolutions`, {
+        headers: {
+          'x-apikey': vtApiKey
+        }
+      });
 
-    if (resolutionsResponse.ok) {
-      const resolutionsData = await resolutionsResponse.json();
-      // Merge the resolutions data into the main response
-      mainData.data.attributes.resolutions = resolutionsData.data;
+      if (resolutionsResponse.ok) {
+        const resolutionsData = await resolutionsResponse.json();
+        mainData.data.attributes.resolutions = resolutionsData.data;
+      }
     }
 
     res.json(mainData.data.attributes);
